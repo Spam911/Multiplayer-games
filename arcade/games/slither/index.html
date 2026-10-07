@@ -1,4 +1,4 @@
-<!doctype html>
+<<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -15,14 +15,18 @@
   #lb{position:fixed;top:12px;right:12px;min-width:170px;padding:10px 12px;background:rgba(0,0,0,.4);border-radius:10px;font-size:13px;line-height:1.5}
   #lb b{display:block;margin-bottom:4px}
   #lb div{display:flex;justify-content:space-between;gap:12px}
-  #score{position:fixed;left:14px;bottom:12px;font-size:20px;font-weight:700}
-  #boost{position:fixed;right:20px;bottom:24px;width:84px;height:84px;border-radius:50%;background:rgba(255,255,255,.18);display:none;align-items:center;justify-content:center;font-weight:700;user-select:none}
+  #score{position:fixed;left:14px;top:12px;font-size:20px;font-weight:700}
+  #boost{position:fixed;left:24px;bottom:34px;width:88px;height:88px;border-radius:50%;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.3);display:none;align-items:center;justify-content:center;font-weight:700;user-select:none;-webkit-user-select:none;touch-action:none}
+  #boost.on{background:rgba(255,200,60,.55)}
+  #joy{position:fixed;right:24px;bottom:28px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.1);border:2px solid rgba(255,255,255,.25);display:none;touch-action:none;user-select:none;-webkit-user-select:none}
+  #knob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;background:rgba(255,255,255,.45);pointer-events:none}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="lb"><b>Leaderboard</b><span id="lbl"></span></div>
 <div id="score"></div>
+<div id="joy"><div id="knob"></div></div>
 <div id="boost">BOOST</div>
 <div id="menu">
   <h1>SLITHER</h1>
@@ -93,22 +97,47 @@ function applySnapshot(m) {
 }
 
 // ----- input -----
-let mx = 0, my = 0, boost = false;
-addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; });
-addEventListener('mousedown', () => boost = true);
-addEventListener('mouseup', () => boost = false);
-addEventListener('keydown', e => { if (e.code === 'Space') boost = true; });
-addEventListener('keyup', e => { if (e.code === 'Space') boost = false; });
-addEventListener('touchstart', e => { mx = e.touches[0].clientX; my = e.touches[0].clientY; }, { passive: true });
-addEventListener('touchmove', e => { mx = e.touches[0].clientX; my = e.touches[0].clientY; }, { passive: true });
-if ('ontouchstart' in window) {
-  const b = $('boost'); b.style.display = 'flex';
-  b.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); boost = true; });
-  b.addEventListener('touchend', e => { e.preventDefault(); boost = false; });
+const isTouch = matchMedia('(pointer: coarse)').matches;
+let mx = 0, my = 0, boost = false, joyAngle = 0;
+
+if (!isTouch) {
+  addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; });
+  addEventListener('mousedown', () => boost = true);
+  addEventListener('mouseup', () => boost = false);
+  addEventListener('keydown', e => { if (e.code === 'Space') boost = true; });
+  addEventListener('keyup', e => { if (e.code === 'Space') boost = false; });
+} else {
+  $('msg').textContent = 'Joystick to steer · hold BOOST to speed up';
+  const joy = $('joy'), knob = $('knob'), bb = $('boost');
+  joy.style.display = 'block';
+  bb.style.display = 'flex';
+  const R = 50;
+  let active = null;
+  const setKnob = e => {
+    const r = joy.getBoundingClientRect();
+    const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+    const d = Math.hypot(dx, dy);
+    if (d > 8) joyAngle = Math.atan2(dy, dx);
+    const k = d > R ? R / d : 1;
+    knob.style.transform = `translate(${dx * k}px,${dy * k}px)`;
+  };
+  joy.addEventListener('pointerdown', e => {
+    e.preventDefault(); active = e.pointerId; joy.setPointerCapture(e.pointerId); setKnob(e);
+  });
+  joy.addEventListener('pointermove', e => { if (e.pointerId === active) setKnob(e); });
+  const endJoy = e => { if (e.pointerId === active) { active = null; knob.style.transform = 'translate(0,0)'; } };
+  joy.addEventListener('pointerup', endJoy);
+  joy.addEventListener('pointercancel', endJoy);
+
+  bb.addEventListener('pointerdown', e => { e.preventDefault(); bb.setPointerCapture(e.pointerId); boost = true; bb.classList.add('on'); });
+  const endBoost = () => { boost = false; bb.classList.remove('on'); };
+  bb.addEventListener('pointerup', endBoost);
+  bb.addEventListener('pointercancel', endBoost);
 }
+
 setInterval(() => {
   if (!playing || ws.readyState !== 1) return;
-  const a = Math.atan2(my - H / 2, mx - W / 2);
+  const a = isTouch ? joyAngle : Math.atan2(my - H / 2, mx - W / 2);
   ws.send(JSON.stringify({ t: 'in', a: +a.toFixed(3), b: boost ? 1 : 0 }));
 }, 33);
 
