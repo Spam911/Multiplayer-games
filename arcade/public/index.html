@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Arcade</title>
+<style>
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:radial-gradient(1200px 600px at 50% -10%,#16234a 0,#0b0f1a 60%);color:#fff;font-family:system-ui,sans-serif}
+  .wrap{max-width:980px;margin:0 auto;padding:36px 20px 60px}
+  header{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between}
+  h1{margin:0;font-size:46px;letter-spacing:4px}
+  .sub{margin:6px 0 0;opacity:.7}
+  .right{display:flex;flex-direction:column;gap:10px;align-items:flex-end}
+  #total{font-size:15px;opacity:.9}
+  .dot{display:inline-block;width:9px;height:9px;margin-right:7px;border-radius:50%;background:#30d158;box-shadow:0 0 8px #30d158}
+  .dot.off{background:#ff453a;box-shadow:0 0 8px #ff453a}
+  #nick{padding:10px 14px;font-size:16px;border-radius:10px;border:2px solid #2c3a5c;background:#101830;color:#fff;width:220px;outline:none}
+  #nick:focus{border-color:#30d158}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px;margin-top:32px}
+  .card{display:flex;flex-direction:column;gap:10px;padding:22px;min-height:210px;border-radius:18px;background:#121a30;border:2px solid #22305a;color:inherit;text-decoration:none;transition:transform .12s,border-color .12s}
+  a.card:hover{transform:translateY(-3px);border-color:#30d158}
+  .card.soon{opacity:.45}
+  .emoji{font-size:48px;line-height:1}
+  .title{font-size:24px;font-weight:700}
+  .desc{flex:1;opacity:.75;font-size:14px;line-height:1.4}
+  .row{display:flex;justify-content:space-between;align-items:center}
+  .cnt{font-size:14px}
+  .btn{padding:8px 18px;border-radius:10px;background:#30d158;color:#04210d;font-weight:700;font-size:15px}
+  .tag{padding:6px 12px;border-radius:10px;background:#22305a;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>ARCADE</h1>
+      <p class="sub">Pick a game and jump in.</p>
+    </div>
+    <div class="right">
+      <div id="total"><span class="dot off"></span>Connecting…</div>
+      <input id="nick" maxlength="16" placeholder="Your nickname" autocomplete="off">
+    </div>
+  </header>
+  <div class="grid" id="grid"></div>
+</div>
+<script>
+const grid = document.getElementById('grid');
+const total = document.getElementById('total');
+const nick = document.getElementById('nick');
+nick.value = localStorage.getItem('nickname') || '';
+nick.addEventListener('input', () => localStorage.setItem('nickname', nick.value.trim().slice(0, 16)));
+
+const cards = new Map();
+function h(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function build(g) {
+  const isLive = g.status === 'live';
+  const el = h(isLive ? 'a' : 'div', 'card' + (isLive ? '' : ' soon'));
+  if (isLive) el.href = '/games/' + encodeURIComponent(g.id) + '/';
+  const row = h('div', 'row');
+  const cnt = h('span', 'cnt');
+  row.append(cnt, isLive ? h('span', 'btn', 'Play') : h('span', 'tag', 'Soon'));
+  el.append(h('div', 'emoji', g.emoji), h('div', 'title', g.title), h('div', 'desc', g.description), row);
+  grid.appendChild(el);
+  return { cnt };
+}
+async function refresh() {
+  try {
+    const r = await fetch('/api/games', { cache: 'no-store' });
+    const d = await r.json();
+    for (const g of d.games) {
+      let c = cards.get(g.id);
+      if (!c) { c = build(g); cards.set(g.id, c); }
+      c.cnt.textContent = g.status === 'live' ? g.online + ' online' : '—';
+    }
+    total.innerHTML = '<span class="dot"></span>' + d.total + ' online now';
+  } catch {
+    total.innerHTML = '<span class="dot off"></span>Server unreachable, retrying…';
+  }
+}
+refresh();
+setInterval(() => { if (!document.hidden) refresh(); }, 3000);
+</script>
+</body>
+</html>
