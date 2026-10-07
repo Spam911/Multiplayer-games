@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Slither</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#0b0f1a;color:#fff;font-family:system-ui,sans-serif;touch-action:none}
+  canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #menu{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(5,8,16,.78)}
+  #menu h1{margin:0;font-size:56px;letter-spacing:3px}
+  #menu p{margin:0;opacity:.8;min-height:1.2em}
+  #menu input{padding:12px 16px;font-size:18px;border-radius:10px;border:2px solid #2c3a5c;background:#101830;color:#fff;width:240px;text-align:center;outline:none}
+  #menu button{padding:12px 36px;font-size:18px;font-weight:700;border:0;border-radius:10px;background:#30d158;color:#04210d;cursor:pointer}
+  #lb{position:fixed;top:12px;right:12px;min-width:170px;padding:10px 12px;background:rgba(0,0,0,.4);border-radius:10px;font-size:13px;line-height:1.5}
+  #lb b{display:block;margin-bottom:4px}
+  #lb div{display:flex;justify-content:space-between;gap:12px}
+  #score{position:fixed;left:14px;bottom:12px;font-size:20px;font-weight:700}
+  #boost{position:fixed;right:20px;bottom:24px;width:84px;height:84px;border-radius:50%;background:rgba(255,255,255,.18);display:none;align-items:center;justify-content:center;font-weight:700;user-select:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="lb"><b>Leaderboard</b><span id="lbl"></span></div>
+<div id="score"></div>
+<div id="boost">BOOST</div>
+<div id="menu">
+  <h1>SLITHER</h1>
+  <p id="msg">Mouse to steer · click or Space to boost</p>
+  <input id="name" maxlength="16" placeholder="Nickname" autocomplete="off">
+  <button id="play">Play</button>
+</div>
+<script>
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+let W, H, dpr;
+function resize() {
+  dpr = Math.min(devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener('resize', resize); resize();
+
+let ws, world = 4000, vx = 1200, vy = 800, myId = null, playing = false;
+const snakes = new Map();
+let food = [];
+let camX = 2000, camY = 2000, scale = 1;
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}`);
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.t === 'init') { world = m.world; vx = m.vx; vy = m.vy; }
+    else if (m.t === 'joined') {
+      myId = m.id; playing = true; snakes.clear();
+      $('menu').style.display = 'none';
+    }
+    else if (m.t === 's') applySnapshot(m);
+    else if (m.t === 'dead') {
+      playing = false;
+      $('msg').textContent = `You died — score ${m.score}`;
+      $('menu').style.display = 'flex';
+    }
+    else if (m.t === 'full') $('msg').textContent = 'Server is full, try again in a moment';
+  };
+  ws.onclose = () => {
+    playing = false;
+    $('msg').textContent = 'Disconnected, reconnecting…';
+    $('menu').style.display = 'flex';
+    setTimeout(connect, 1500);
+  };
+}
+connect();
+
+function applySnapshot(m) {
+  const seen = new Set();
+  for (const s of m.sn) {
+    seen.add(s.i);
+    let o = snakes.get(s.i);
+    if (!o) { o = { id: s.i, disp: s.s.slice() }; snakes.set(s.i, o); }
+    o.n = s.n; o.h = s.h; o.r = s.r; o.b = s.b; o.sc = s.sc; o.tgt = s.s;
+    const L = s.s.length;
+    if (o.disp.length < L) for (let i = o.disp.length; i < L; i++) o.disp.push(s.s[i]);
+    else o.disp.length = L;
+  }
+  for (const id of [...snakes.keys()]) if (!seen.has(id)) snakes.delete(id);
+  food = m.f;
+  $('lbl').innerHTML = m.lb.map(e => `<div><span>${e[0]}</span><span>${e[1]}</span></div>`).join('');
+  const me = snakes.get(myId);
+  if (me) $('score').textContent = me.sc;
+}
+
+// ----- input -----
+let mx = 0, my = 0, boost = false;
+addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; });
+addEventListener('mousedown', () => boost = true);
+addEventListener('mouseup', () => boost = false);
+addEventListener('keydown', e => { if (e.code === 'Space') boost = true; });
+addEventListener('keyup', e => { if (e.code === 'Space') boost = false; });
+addEventListener('touchstart', e => { mx = e.touches[0].clientX; my = e.touches[0].clientY; }, { passive: true });
+addEventListener('touchmove', e => { mx = e.touches[0].clientX; my = e.touches[0].clientY; }, { passive: true });
+if ('ontouchstart' in window) {
+  const b = $('boost'); b.style.display = 'flex';
+  b.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); boost = true; });
+  b.addEventListener('touchend', e => { e.preventDefault(); boost = false; });
+}
+setInterval(() => {
+  if (!playing || ws.readyState !== 1) return;
+  const a = Math.atan2(my - H / 2, mx - W / 2);
+  ws.send(JSON.stringify({ t: 'in', a: +a.toFixed(3), b: boost ? 1 : 0 }));
+}, 33);
+
+// ----- menu -----
+$('name').value = localStorage.getItem('slither-name') || '';
+function play() {
+  if (ws.readyState !== 1) return;
+  const n = $('name').value.trim();
+  localStorage.setItem('slither-name', n);
+  ws.send(JSON.stringify({ t: 'join', name: n }));
+}
+$('play').onclick = play;
+$('name').addEventListener('keydown', e => { if (e.key === 'Enter') play(); });
+
+// ----- render -----
+function drawSnake(o, isMe) {
+  const d = o.disp, n = d.length / 2, r = o.r;
+  if (o.b) { ctx.shadowColor = `hsl(${o.h},100%,60%)`; ctx.shadowBlur = 18; }
+  for (let i = n - 1; i >= 0; i--) {
+    ctx.fillStyle = `hsl(${o.h},80%,${i % 6 < 3 ? 56 : 47}%)`;
+    ctx.beginPath(); ctx.arc(d[i * 2], d[i * 2 + 1], r, 0, 6.2832); ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+  const hx = d[0], hy = d[1];
+  const ang = n > 1 ? Math.atan2(hy - d[3], hx - d[2]) : 0;
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  for (const side of [-1, 1]) {
+    const ex = hx + ca * r * 0.45 - sa * r * 0.55 * side;
+    const ey = hy + sa * r * 0.45 + ca * r * 0.55 * side;
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex, ey, r * 0.42, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(ex + ca * r * 0.15, ey + sa * r * 0.15, r * 0.2, 0, 6.2832); ctx.fill();
+  }
+  ctx.fillStyle = isMe ? '#fff' : 'rgba(255,255,255,.75)';
+  ctx.font = `${13 / scale}px system-ui`;
+  ctx.textAlign = 'center';
+  ctx.fillText(o.n, hx, hy - r - 8 / scale);
+}
+
+function draw() {
+  ctx.fillStyle = '#0b0f1a'; ctx.fillRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(W / 2, H / 2); ctx.scale(scale, scale); ctx.translate(-camX, -camY);
+
+  const g = 100, hw = W / 2 / scale, hh = H / 2 / scale;
+  ctx.strokeStyle = 'rgba(255,255,255,.05)'; ctx.lineWidth = 1 / scale;
+  ctx.beginPath();
+  for (let x = Math.max(0, Math.floor((camX - hw) / g) * g); x <= Math.min(world, camX + hw); x += g) { ctx.moveTo(x, Math.max(0, camY - hh)); ctx.lineTo(x, Math.min(world, camY + hh)); }
+  for (let y = Math.max(0, Math.floor((camY - hh) / g) * g); y <= Math.min(world, camY + hh); y += g) { ctx.moveTo(Math.max(0, camX - hw), y); ctx.lineTo(Math.min(world, camX + hw), y); }
+  ctx.stroke();
+  ctx.strokeStyle = '#ff4466'; ctx.lineWidth = 6; ctx.strokeRect(0, 0, world, world);
+
+  for (let i = 0; i < food.length; i += 4) {
+    ctx.fillStyle = `hsl(${food[i + 2]},90%,60%)`;
+    ctx.beginPath(); ctx.arc(food[i], food[i + 1], food[i + 3], 0, 6.2832); ctx.fill();
+  }
+  for (const o of snakes.values()) if (o.id !== myId) drawSnake(o, false);
+  const me = snakes.get(myId);
+  if (me) drawSnake(me, true);
+  ctx.restore();
+}
+
+let last = performance.now();
+function frame(t) {
+  const dt = Math.min(0.05, (t - last) / 1000); last = t;
+  const k = 1 - Math.exp(-dt * 18);
+  for (const o of snakes.values())
+    for (let i = 0; i < o.disp.length; i++) o.disp[i] += (o.tgt[i] - o.disp[i]) * k;
+
+  const me = snakes.get(myId);
+  const fit = Math.max(W / (2 * vx), H / (2 * vy));
+  if (me) {
+    camX = me.disp[0]; camY = me.disp[1];
+    const target = Math.max(fit, 1 - (me.r - 7) * 0.03);
+    scale += (target - scale) * 0.05;
+  } else scale += (Math.max(fit, 0.8) - scale) * 0.05;
+  draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
