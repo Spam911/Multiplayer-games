@@ -13,6 +13,13 @@ module.exports = [
     status: 'live',
     module: './slither',
   },
-  { id: 'soon1', title: 'Coming soon', emoji: '🚀', description: 'A new game is on its way.', status: 'soon' },
+  {
+    id: 'chess',
+    title: 'Chess',
+    emoji: '♟️',
+    description: 'Challenge anyone who is online to a game of chess.',
+    status: 'live',
+    module: './chess',
+  },
   { id: 'soon2', title: 'Coming soon', emoji: '🎯', description: 'Another one is being planned.', status: 'soon' },
 ];
