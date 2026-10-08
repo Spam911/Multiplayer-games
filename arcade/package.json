@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "description": "Multiplayer arcade lobby with slither.io-style game",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
-  "dependencies": { "ws": "^8.18.0" }
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "chess.js": "^1.4.0",
+    "ws": "^8.18.0"
+  }
 }
