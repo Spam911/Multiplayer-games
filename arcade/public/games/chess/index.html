@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chess</title>
+<style>
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:radial-gradient(1200px 600px at 50% -10%,#16234a 0,#0b0f1a 60%);color:#fff;font-family:system-ui,sans-serif}
+  [hidden]{display:none!important}
+  .wrap{max-width:960px;margin:0 auto;padding:18px 16px 40px}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header h1{margin:0;font-size:26px;letter-spacing:2px;flex:1}
+  .back{color:#9fb3e8;text-decoration:none}
+  .back:hover{text-decoration:underline}
+  .conn{font-size:13px;padding:4px 10px;border-radius:99px;background:#22305a}
+  .conn.ok{background:#14532d}
+  .conn.bad{background:#7f1d1d}
+  h2{font-size:18px;margin:26px 0 10px}
+  #banners{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+  .banner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;border-radius:12px;background:#1b2750;border:2px solid #3b5bdb}
+  .banner.wait{border-color:#555;background:#161d36}
+  .banner span{flex:1;min-width:140px}
+  .btn{padding:8px 16px;border:0;border-radius:10px;font-weight:700;font-size:15px;cursor:pointer;background:#30d158;color:#04210d}
+  .btn.sec{background:#2c3a5c;color:#fff}
+  .btn.red{background:#ff453a;color:#fff}
+  .btn:disabled{opacity:.45;cursor:default}
+  .prow{display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:8px;border-radius:12px;background:#121a30;border:2px solid #22305a}
+  .pname{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis}
+  .badge{font-size:12px;padding:3px 9px;border-radius:99px}
+  .badge.idle{background:#14532d}
+  .badge.playing{background:#5c3b00}
+  #empty{opacity:.7;line-height:1.5}
+  .game{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;justify-content:center;margin-top:16px}
+  .left{display:flex;flex-direction:column;gap:8px}
+  .bar{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:10px;background:#121a30;border:2px solid transparent;font-weight:600}
+  .bar.turn{border-color:#30d158}
+  .dot{width:14px;height:14px;border-radius:50%;border:2px solid #888}
+  .dot.wh{background:#fff}.dot.bk{background:#111}
+  .board{--s:min(94vw,calc(100vh - 250px),620px);width:var(--s);height:var(--s);display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);border-radius:6px;overflow:hidden;user-select:none;-webkit-user-select:none}
+  .sq{position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:calc(var(--s)/8*.78)}
+  .sq.l{background:#eeeed2;color:#769656}
+  .sq.d{background:#769656;color:#eeeed2}
+  .sq.last{box-shadow:inset 0 0 0 100px rgba(255,235,59,.38)}
+  .sq.sel{box-shadow:inset 0 0 0 100px rgba(80,160,255,.55)}
+  .sq.chk{background:radial-gradient(circle,#ff4d4d 0,#ff4d4d 35%,transparent 80%),inherit}
+  .sq.tgt::before{content:'';position:absolute;width:30%;height:30%;border-radius:50%;background:rgba(0,0,0,.28)}
+  .sq.tgt.cap::before{width:88%;height:88%;background:none;border:5px solid rgba(0,0,0,.3)}
+  .co{position:absolute;font-size:11px;font-style:normal;font-weight:700;line-height:1;opacity:.85}
+  .co.f{right:3px;bottom:2px}
+  .co.r{left:3px;top:2px}
+  .pc{position:relative;z-index:1;line-height:1;pointer-events:none}
+  .pc.w{color:#fff;text-shadow:0 0 3px #000,0 0 2px #000,0 1px 2px #000}
+  .pc.b{color:#1a1a1a;text-shadow:0 0 2px rgba(255,255,255,.55)}
+  .panel{flex:1 1 230px;max-width:340px;min-width:200px;display:flex;flex-direction:column;gap:12px}
+  #status{padding:12px 14px;border-radius:12px;background:#121a30;border:2px solid #22305a;line-height:1.4}
+  #status.over{border-color:#ffd60a}
+  #moves{height:200px;overflow-y:auto;padding:10px 12px;border-radius:12px;background:#121a30;border:2px solid #22305a;font-size:14px;line-height:1.7}
+  #moves b{opacity:.5;font-weight:400;margin-right:4px}
+  #moves span{display:inline-block;min-width:62px}
+  .overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(5,8,16,.8);z-index:10}
+  .modal{display:flex;flex-direction:column;align-items:center;gap:14px;padding:26px;border-radius:16px;background:#121a30;border:2px solid #22305a}
+  .modal input{padding:12px 16px;font-size:18px;border-radius:10px;border:2px solid #2c3a5c;background:#101830;color:#fff;width:240px;text-align:center;outline:none}
+  .promo{display:flex;gap:10px}
+  .promo button{width:70px;height:70px;font-size:46px;border-radius:12px;border:2px solid #2c3a5c;background:#1b2750;color:#fff;cursor:pointer}
+  #toasts{position:fixed;top:12px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;z-index:20;pointer-events:none}
+  .toast{padding:10px 16px;border-radius:10px;background:#2c3a5c;box-shadow:0 4px 14px rgba(0,0,0,.4)}
+</style>
+</head>
+<body>
+<div id="toasts"></div>
+
+<div id="gate" class="overlay" hidden>
+  <div class="modal">
+    <div style="font-size:22px;font-weight:700">Choose a nickname</div>
+    <input id="gname" maxlength="16" placeholder="Nickname" autocomplete="off">
+    <button class="btn" id="gjoin">Join</button>
+  </div>
+</div>
+
+<div id="promo" class="overlay" hidden>
+  <div class="modal">
+    <div>Promote to…</div>
+    <div class="promo" id="promoBtns"></div>
+  </div>
+</div>
+
+<div class="wrap">
+  <header>
+    <a class="back" href="/">← Lobby</a>
+    <h1>♟ CHESS</h1>
+    <span id="conn" class="conn bad">Connecting…</span>
+  </header>
+
+  <div id="banners"></div>
+
+  <section id="vLobby">
+    <h2>Players online <span id="pcount"></span></h2>
+    <div id="plist"></div>
+    <p id="empty">No one else is online yet. Share the link with a friend, or open this page on another device to try it out.</p>
+  </section>
+
+  <section id="vGame" hidden>
+    <div class="game">
+      <div class="left">
+        <div class="bar" id="oppBar"><span class="dot" id="oppDot"></span><span id="oppName"></span></div>
+        <div class="board" id="board"></div>
+        <div class="bar" id="meBar"><span class="dot" id="meDot"></span><span id="meName"></span></div>
+      </div>
+      <div class="panel">
+        <div id="status"></div>
+        <div id="moves"></div>
+        <button class="btn red" id="resign">Resign</button>
+        <button class="btn" id="backBtn" hidden>Back to players</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const el = (tag, cls, text) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+};
+const FILES = 'abcdefgh';
+const GLYPH = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
+const glyph = ch => GLYPH[ch.toLowerCase()] + '\uFE0E';
+
+let name = (localStorage.getItem('nickname') || '').trim();
+let ws = null, me = null, players = [], state = null, out = null, selected = null, pendingMove = null;
+const incoming = new Map();
+
+// ---------- helpers ----------
+function toast(text) {
+  const t = el('div', 'toast', text);
+  $('toasts').appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+function setConn(text, ok) {
+  $('conn').textContent = text;
+  $('conn').className = 'conn ' + (ok ? 'ok' : 'bad');
+}
+function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+function parseFen(fen) {
+  const map = {};
+  const rows = fen.split(' ')[0].split('/');
+  for (let r = 0; r < 8; r++) {
+    let f = 0;
+    for (const ch of rows[r]) {
+      if (/\d/.test(ch)) f += +ch;
+      else { map[FILES[f] + (8 - r)] = ch; f++; }
+    }
+  }
+  return map;
+}
+
+// ---------- connection ----------
+function connect() {
+  setConn('Connecting…', false);
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws/chess`);
+  ws.onopen = () => send({ t: 'hello', name, token: sessionStorage.getItem('chess-token') || undefined });
+  ws.onmessage = ev => handle(JSON.parse(ev.data));
+  ws.onclose = () => {
+    setConn('Disconnected — reconnecting…', false);
+    incoming.clear(); out = null; renderBanners(); renderPlayers();
+    setTimeout(connect, 1500);
+  };
+}
+
+function handle(m) {
+  switch (m.t) {
+    case 'welcome':
+      me = { id: m.id, name: m.name };
+      sessionStorage.setItem('chess-token', m.token);
+      setConn('Online as ' + m.name, true);
+      break;
+    case 'players': players = m.list; renderPlayers(); break;
+    case 'incoming': incoming.set(m.cid, m.from); renderBanners(); break;
+    case 'incoming_end': incoming.delete(m.cid); renderBanners(); break;
+    case 'outgoing': out = { cid: m.cid, to: m.to }; renderBanners(); renderPlayers(); break;
+    case 'outgoing_end': {
+      if (m.cid && (!out || out.cid !== m.cid)) break;
+      out = null;
+      const why = {
+        declined: `${m.name} declined your challenge`,
+        expired: `${m.name} didn't answer in time`,
+        busy: `${m.name} is already in a game`,
+        offline: `${m.name} went offline`,
+      }[m.reason];
+      if (why) toast(why);
+      renderBanners(); renderPlayers();
+      break;
+    }
+    case 'state': {
+      state = m; selected = null; out = null;
+      renderBanners(); renderPlayers(); showView(); renderGame();
+      break;
+    }
+    case 'error': toast(m.msg); break;
+  }
+}
+
+// ---------- lobby UI ----------
+function renderPlayers() {
+  const list = $('plist');
+  list.textContent = '';
+  const others = players.filter(p => !me || p.id !== me.id)
+    .sort((a, b) => a.status === b.status ? a.name.localeCompare(b.name) : (a.status === 'idle' ? -1 : 1));
+  $('pcount').textContent = others.length ? `(${others.length})` : '';
+  $('empty').hidden = others.length > 0;
+  for (const p of others) {
+    const row = el('div', 'prow');
+    row.append(el('span', 'pname', p.name), el('span', 'badge ' + p.status, p.status === 'idle' ? 'Available' : 'In game'));
+    const b = el('button', 'btn');
+    b.dataset.id = p.id;
+    if (out && out.to.id === p.id) { b.textContent = 'Requested'; b.disabled = true; }
+    else { b.textContent = 'Challenge'; b.disabled = p.status !== 'idle'; }
+    row.appendChild(b);
+    list.appendChild(row);
+  }
+}
+$('plist').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (b && !b.disabled) send({ t: 'challenge', to: +b.dataset.id });
+});
+
+function renderBanners() {
+  const box = $('banners');
+  box.textContent = '';
+  for (const [cid, from] of incoming) {
+    const d = el('div', 'banner');
+    const s = el('span'); s.append('♞ ', Object.assign(el('b'), { textContent: from.name }), ' challenges you to a game!');
+    const acc = el('button', 'btn acc', 'Accept'), dec = el('button', 'btn sec dec', 'Decline');
+    acc.dataset.cid = dec.dataset.cid = cid;
+    d.append(s, acc, dec);
+    box.appendChild(d);
+  }
+  if (out) {
+    const d = el('div', 'banner wait');
+    const s = el('span'); s.append('Waiting for ', Object.assign(el('b'), { textContent: out.to.name }), ' to answer…');
+    d.append(s, el('button', 'btn sec cancel', 'Cancel'));
+    box.appendChild(d);
+  }
+  document.title = incoming.size ? '(!) Challenge — Chess' : 'Chess';
+}
+$('banners').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.classList.contains('cancel')) { send({ t: 'cancel' }); out = null; renderBanners(); renderPlayers(); return; }
+  const cid = +b.dataset.cid;
+  send({ t: 'respond', cid, accept: b.classList.contains('acc') });
+  incoming.delete(cid); renderBanners();
+});
+
+function showView() {
+  $('vLobby').hidden = !!state;
+  $('vGame').hidden = !state;
+}
+
+// ---------- game UI ----------
+function statusText(S) {
+  if (S.over) {
+    if (S.result === '1/2-1/2') return 'Draw — ' + S.reason + '.';
+    const won = (S.result === '1-0' ? 'w' : 'b') === S.color;
+    if (S.reason === 'checkmate') return won ? 'Checkmate — you won! 🎉' : 'Checkmate — you lost.';
+    if (S.reason === 'resignation') return won ? 'Your opponent resigned — you won!' : 'You resigned.';
+    if (S.reason === 'disconnect') return won ? 'Your opponent disconnected — you won.' : 'You were disconnected and forfeited.';
+    return won ? 'You won.' : 'You lost.';
+  }
+  let t = S.turn === S.color ? (S.check ? 'Check! Your move.' : 'Your turn.') : `${S.opp}'s turn.`;
+  if (!S.oppOnline) t += ' Opponent disconnected — waiting up to 60 s…';
+  return t;
+}
+
+function renderGame() {
+  const S = state;
+  if (!S) return;
+  const pieces = parseFen(S.fen);
+  const flip = S.color === 'b';
+  let kingSq = null;
+  if (S.check && !S.over) for (const sq in pieces) if (pieces[sq] === (S.turn === 'w' ? 'K' : 'k')) kingSq = sq;
+  if (S.over && S.reason === 'checkmate') for (const sq in pieces) if (pieces[sq] === (S.turn === 'w' ? 'K' : 'k')) kingSq = sq;
+  const targets = (selected && S.legal && S.legal[selected]) || [];
+  let html = '';
+  for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
+    const file = flip ? 7 - f : f;
+    const rank = flip ? r + 1 : 8 - r;
+    const sq = FILES[file] + rank;
+    const cls = ['sq', (file + rank) % 2 === 1 ? 'd' : 'l'];
+    if (S.last && (S.last.from === sq || S.last.to === sq)) cls.push('last');
+    if (sq === selected) cls.push('sel');
+    if (sq === kingSq) cls.push('chk');
+    if (targets.includes(sq)) { cls.push('tgt'); if (pieces[sq]) cls.push('cap'); }
+    const ch = pieces[sq];
+    html += `<div class="${cls.join(' ')}" data-sq="${sq}">`
+      + (f === 0 ? `<i class="co r">${rank}</i>` : '')
+      + (r === 7 ? `<i class="co f">${FILES[file]}</i>` : '')
+      + (ch ? `<span class="pc ${ch === ch.toUpperCase() ? 'w' : 'b'}">${glyph(ch)}</span>` : '')
+      + '</div>';
+  }
+  $('board').innerHTML = html;
+
+  $('oppName').textContent = S.opp; $('meName').textContent = S.me;
+  $('oppDot').className = 'dot ' + (S.color === 'w' ? 'bk' : 'wh');
+  $('meDot').className = 'dot ' + (S.color === 'w' ? 'wh' : 'bk');
+  $('meBar').classList.toggle('turn', !S.over && S.turn === S.color);
+  $('oppBar').classList.toggle('turn', !S.over && S.turn !== S.color);
+  $('status').textContent = statusText(S);
+  $('status').classList.toggle('over', S.over);
+
+  const mv = $('moves');
+  mv.textContent = '';
+  S.history.forEach((san, i) => {
+    if (i % 2 === 0) mv.appendChild(el('b', '', (i / 2 + 1) + '.'));
+    mv.appendChild(el('span', '', san));
+  });
+  mv.scrollTop = mv.scrollHeight;
+  $('resign').hidden = S.over;
+  $('backBtn').hidden = !S.over;
+}
+
+$('board').addEventListener('click', e => {
+  const sqEl = e.target.closest('.sq');
+  if (!sqEl || !state || state.over) return;
+  const sq = sqEl.dataset.sq;
+  const pieces = parseFen(state.fen);
+  if (selected && state.legal && state.legal[selected] && state.legal[selected].includes(sq)) {
+    const p = pieces[selected];
+    if (p && p.toLowerCase() === 'p' && (sq[1] === '8' || sq[1] === '1')) {
+      pendingMove = { from: selected, to: sq };
+      showPromo();
+    } else {
+      send({ t: 'move', from: selected, to: sq });
+      selected = null;
+      renderGame();
+    }
+    return;
+  }
+  const ch = pieces[sq];
+  const mine = ch && (ch === ch.toUpperCase()) === (state.color === 'w');
+  selected = (mine && state.turn === state.color) ? sq : null;
+  renderGame();
+});
+
+function showPromo() {
+  const box = $('promoBtns');
+  box.textContent = '';
+  for (const k of ['q', 'r', 'b', 'n']) {
+    const b = el('button', '', GLYPH[k] + '\uFE0E');
+    b.dataset.p = k;
+    box.appendChild(b);
+  }
+  $('promo').hidden = false;
+}
+$('promoBtns').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b || !pendingMove) return;
+  send({ t: 'move', from: pendingMove.from, to: pendingMove.to, promotion: b.dataset.p });
+  pendingMove = null; selected = null;
+  $('promo').hidden = true;
+  renderGame();
+});
+$('promo').addEventListener('click', e => {
+  if (e.target === $('promo')) { pendingMove = null; $('promo').hidden = true; }
+});
+
+$('resign').addEventListener('click', () => { if (confirm('Resign this game?')) send({ t: 'resign' }); });
+$('backBtn').addEventListener('click', () => {
+  send({ t: 'leave' });
+  state = null; selected = null;
+  showView(); renderPlayers();
+});
+
+// ---------- start ----------
+function begin() { $('gate').hidden = true; connect(); }
+if (name) begin();
+else {
+  $('gate').hidden = false;
+  const join = () => {
+    const n = $('gname').value.trim().slice(0, 16);
+    if (!n) return;
+    name = n; localStorage.setItem('nickname', n); begin();
+  };
+  $('gjoin').onclick = join;
+  $('gname').addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
+}
+</script>
+</body>
+</html>
