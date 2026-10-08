@@ -53,7 +53,7 @@ let camX = 2000, camY = 2000, scale = 1;
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}`);
+  ws = new WebSocket(`${proto}://${location.host}/ws/slither`);
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
     if (m.t === 'init') { world = m.world; vx = m.vx; vy = m.vy; }
