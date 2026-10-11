@@ -12,8 +12,8 @@
   .wrap{max-width:960px;margin:0 auto;padding:18px 16px 40px}
   header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
   header h1{margin:0;font-size:26px;letter-spacing:2px;flex:1}
-  .back{color:#9fb3e8;text-decoration:none}
-  .back:hover{text-decoration:underline}
+  .back{color:#cfe0ff;text-decoration:none;padding:6px 14px;border-radius:99px;background:rgba(255,255,255,.07);border:2px solid rgba(255,255,255,.18);font-size:13px;white-space:nowrap}
+  .back:hover{border-color:#30d158;color:#fff}
   .conn{font-size:13px;padding:4px 10px;border-radius:99px;background:#22305a}
   .conn.ok{background:#14532d}
   .conn.bad{background:#7f1d1d}
@@ -26,6 +26,8 @@
   .btn.sec{background:#2c3a5c;color:#fff}
   .btn.red{background:#ff453a;color:#fff}
   .btn:disabled{opacity:.45;cursor:default}
+  .row2{display:flex;gap:8px}
+  .row2 .btn{flex:1}
   .prow{display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:8px;border-radius:12px;background:#121a30;border:2px solid #22305a}
   .pname{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis}
   .badge{font-size:12px;padding:3px 9px;border-radius:99px}
@@ -44,7 +46,12 @@
   .sq.d{background:#769656;color:#eeeed2}
   .sq.last{box-shadow:inset 0 0 0 100px rgba(255,235,59,.38)}
   .sq.sel{box-shadow:inset 0 0 0 100px rgba(80,160,255,.55)}
-  .sq.chk{background:radial-gradient(circle,#ff4d4d 0,#ff4d4d 35%,transparent 80%),inherit}
+  /* King in check: paint a red glow over the tile. This has to be a pseudo-element -
+     the old `background:radial-gradient(...),inherit` was an invalid shorthand, so
+     the whole declaration was dropped and check never showed at all. */
+  .sq.chk::after{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(circle at 50% 50%,rgba(255,80,80,.95) 0,rgba(216,26,26,.88) 45%,rgba(150,0,0,.4) 78%,transparent 100%);
+    box-shadow:inset 0 0 0 3px rgba(255,120,120,.95)}
   .sq.tgt::before{content:'';position:absolute;width:30%;height:30%;border-radius:50%;background:rgba(0,0,0,.28)}
   .sq.tgt.cap::before{width:88%;height:88%;background:none;border:5px solid rgba(0,0,0,.3)}
   .co{position:absolute;font-size:11px;font-style:normal;font-weight:700;line-height:1;opacity:.85}
@@ -111,8 +118,11 @@
       <div class="panel">
         <div id="status"></div>
         <div id="moves"></div>
-        <button class="btn red" id="resign">Resign</button>
-        <button class="btn" id="backBtn" hidden>Back to players</button>
+        <div class="row2">
+          <button class="btn red" id="resign">Resign</button>
+          <button class="btn" id="rematch" hidden>Rematch</button>
+        </div>
+        <button class="btn sec" id="backBtn" hidden>Back to players</button>
       </div>
     </div>
   </section>
@@ -247,6 +257,8 @@ function renderBanners() {
     box.appendChild(d);
   }
   document.title = incoming.size ? '(!) Challenge — Chess' : 'Chess';
+  // hide Rematch while a request is already pending, so it cannot be spammed
+  if (state && state.over) $('rematch').hidden = !!out;
 }
 $('banners').addEventListener('click', e => {
   const b = e.target.closest('button');
@@ -321,6 +333,7 @@ function renderGame() {
   });
   mv.scrollTop = mv.scrollHeight;
   $('resign').hidden = S.over;
+  $('rematch').hidden = !S.over;
   $('backBtn').hidden = !S.over;
 }
 
@@ -370,6 +383,7 @@ $('promo').addEventListener('click', e => {
 });
 
 $('resign').addEventListener('click', () => { if (confirm('Resign this game?')) send({ t: 'resign' }); });
+$('rematch').addEventListener('click', () => { out = null; send({ t: 'rematch' }); });
 $('backBtn').addEventListener('click', () => {
   send({ t: 'leave' });
   state = null; selected = null;

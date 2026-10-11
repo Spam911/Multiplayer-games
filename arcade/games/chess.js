@@ -201,6 +201,14 @@ module.exports = function start(wss) {
         case 'resign':
           if (p.game && !p.game.over) endGame(p.game, p.game.white === p ? '0-1' : '1-0', 'resignation');
           break;
+        case 'rematch': {
+          // Reuse the normal challenge flow so the other side still gets asked.
+          const g = p.lastGame;
+          if (!g || !g.over) return send(p, { t: 'error', msg: 'No finished game to rematch' });
+          const opp = g.white === p ? g.black : g.white;
+          challenge(p, opp.id);
+          break;
+        }
         case 'leave': if (!p.game) p.lastGame = null; break;
       }
     });
