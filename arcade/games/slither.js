@@ -52,40 +52,160 @@ function spawn(name, ws, bot) {
     id: nextId++, name, ws, bot, segs,
     hue: Math.floor(rnd(0, 360)),
     angle: a, target: a, boost: false,
-    score: 0, boostAcc: 0, aiT: 0,
+    score: 0, boostAcc: 0, aiT: 0, roam: null, food: null, prey: null,
   };
   snakes.set(s.id, s);
   return s;
 }
 
 // ---------- bots ----------
-function ai(s, now) {
-  if (now < s.aiT) return;
-  s.aiT = now + 200 + Math.random() * 200;
-  const h = s.segs[0];
-  s.boost = false;
-  const m = 250;
-  if (h.x < m || h.x > W - m || h.y < m || h.y > W - m) {
-    s.target = Math.atan2(W / 2 - h.y, W / 2 - h.x);
-    return;
-  }
-  let danger = null, dd = 140 * 140;
-  for (const o of snakes.values()) {
-    if (o === s) continue;
-    for (let i = 0; i < o.segs.length; i += 2) {
-      const dx = o.segs[i].x - h.x, dy = o.segs[i].y - h.y;
-      const d = dx * dx + dy * dy;
-      if (d < dd) { dd = d; danger = o.segs[i]; }
+// A bot re-plans ~9x/second and then commits to the heading it chose, instead of
+// nudging a fresh random angle on every think. Re-picking randomly is what used
+// to make them orbit themselves until they ran into their own body.
+//
+// Each plan commits to one goal (hunt / graze / roam) and picks the cheapest of
+// HEADINGS candidate headings. Every term is bounded to roughly 0..1 so none of
+// them can dominate, and the straightness term is what actually stops the
+// orbiting: nothing in this game kills a snake for running into itself, so
+// without a dislike of hard swerves a bot with no threat in range just loops.
+const LOOK = 170;
+const HEADINGS = 24;
+
+// A persistent wander point, so a bot with nothing in reach crosses the arena
+// instead of looping a tight circle where it stands.
+function roamGoal(s, h) {
+  if (!s.roam || Math.hypot(s.roam.x - h.x, s.roam.y - h.y) < 320) {
+    let x = 0, y = 0;
+    for (let i = 0; i < 10; i++) {
+      x = rnd(320, W - 320); y = rnd(320, W - 320);
+      if (Math.hypot(x - h.x, y - h.y) < 1600) break;
     }
+    s.roam = { x, y };
   }
-  if (danger) { s.target = Math.atan2(h.y - danger.y, h.x - danger.x); return; }
-  let best = null, bd = 500 * 500;
+  return { x: s.roam.x, y: s.roam.y, boost: false };
+}
+
+function foodGoal(s, h) {
+  const REACH = 820;
+  let best = null, bestScore = -Infinity;
   for (const f of food) {
     const dx = f.x - h.x, dy = f.y - h.y;
-    const d = dx * dx + dy * dy;
-    if (d < bd) { bd = d; best = f; }
+    const d2 = dx * dx + dy * dy;
+    if (d2 > REACH * REACH) continue;
+    const d = Math.sqrt(d2);
+    let sc = 200 - d * 0.25 + f.v * 14;
+    if (f === s.food) sc += 60;            // mild commitment to the current pellet
+    const wallD = Math.min(f.x, f.y, W - f.x, W - f.y);
+    if (wallD < 260) sc -= (260 - wallD) * 1.2;  // never graze into a corner
+    if (sc > bestScore) { bestScore = sc; best = f; }
   }
-  s.target = best ? Math.atan2(best.y - h.y, best.x - h.x) : s.target + rnd(-0.8, 0.8);
+  s.food = best;
+  return best ? { x: best.x, y: best.y, boost: false } : null;
+}
+
+// Cut in front of a rival rather than head-to-head: a head-on clash takes both
+// snakes down, but parking our body across their path only kills them. So other
+// snakes' *heads* are weighted as the most dangerous thing to drift into - their
+// bodies are the safe ones to hit.
+function huntGoal(s, h) {
+  let prey = null, pd = 520 * 520, human = false;
+  for (const o of snakes.values()) {
+    if (o === s) continue;
+    const isHuman = !o.bot;
+    // Humans are always worth a run at. Bots only once we have a real size edge,
+    // otherwise every bot fights every other bot from spawn and the arena churns.
+    if (!isHuman && o.score * 1.6 > s.score) continue;
+    const oh = o.segs[0];
+    const dx = oh.x - h.x, dy = oh.y - h.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > pd) continue;
+    pd = d2; prey = o; human = isHuman;
+  }
+  if (prey === s.prey) pd *= 0.55;        // stay committed to the chase
+  s.prey = prey;
+  if (!prey) return null;
+  const d = Math.sqrt(pd);
+  const lead = Math.min(230, 70 + d * 0.45);
+  return {
+    x: prey.segs[0].x + Math.cos(prey.angle) * lead,
+    y: prey.segs[0].y + Math.sin(prey.angle) * lead,
+    boost: d < 200 && s.score >= 14 && (human || s.score >= 40),
+  };
+}
+
+function ai(s, now) {
+  if (now < s.aiT) return;
+  s.aiT = now + 110 + Math.random() * 60;
+  const h = s.segs[0];
+  s.boost = false;
+
+  const len = s.segs.length * CFG.SPACING;
+  const reach = LOOK + len * 0.3;
+  const safe = 90 + len * 0.35;          // how close we like to be to a wall
+
+  // Close to a wall? Forget food and prey, just get back to open ground.
+  const pinned = h.x < safe || h.x > W - safe || h.y < safe || h.y > W - safe;
+  const goal = pinned
+    ? { x: W / 2, y: W / 2, boost: false }
+    : huntGoal(s, h) || foodGoal(s, h) || roamGoal(s, h);
+
+  // Bodies close enough to matter, gathered once per plan rather than once per
+  // candidate heading.
+  const R = LOOK + 80, R2 = R * R, hazards = [];
+  for (const o of snakes.values()) {
+    const mine = o === s;
+    for (let i = 0; i < o.segs.length; i++) {
+      const g = o.segs[i];
+      const dx = g.x - h.x, dy = g.y - h.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > R2) continue;
+      hazards.push({ ang: Math.atan2(dy, dx), d: Math.sqrt(d2), mine, head: i === 0 });
+    }
+  }
+
+  let bestA = s.target, bestCost = Infinity;
+  for (let i = 0; i < HEADINGS; i++) {
+    const a = (i / HEADINGS) * Math.PI * 2;
+    const ux = Math.cos(a), uy = Math.sin(a);
+    const px = h.x + ux * reach, py = h.y + uy * reach;
+
+    // want: saturating, so a distant goal cannot swamp everything else
+    let cost = 1 - Math.exp(-Math.hypot(goal.x - px, goal.y - py) / 700);
+
+    // walls: worst axis only, squared, never summed
+    const gap = Math.min(px, py, W - px, W - py);
+    if (gap < safe) {
+      const w = 1 - gap / safe;
+      cost += w * w * 2.6;
+    }
+
+    // bodies: worst threat only (max, not sum) so a long body cannot dominate.
+    // Only *other* snakes are lethal here - `if (a === b) continue` in tick()
+    // means a snake can never run into itself, so own-body repulsion is kept
+    // tiny and the real weight goes on rivals, whose heads and bodies both kill.
+    let worst = 0;
+    for (const z of hazards) {
+      const diff = wrap(z.ang - a);
+      if (diff > 1.75 || diff < -1.75) continue;     // well behind us
+      const prox = 1 - z.d / R;
+      const centred = 1 - Math.min(1, Math.abs(diff) / 1.75);
+      const t = prox * prox * centred * (z.mine ? 0.15 : z.head ? 1.4 : 1);
+      if (t > worst) worst = t;
+    }
+    cost += worst * 2.2;
+
+    // Hold a line. Nothing in this game stops a snake running into itself, so
+    // without an explicit dislike of hard swerves a bot with no threat in range
+    // just orbits - which is exactly the "spins on itself" we are fixing. Real
+    // players drive long sweeping arcs, and so should these.
+    const turn = Math.abs(wrap(a - s.angle));
+    cost += turn * turn * 0.5;
+
+    if (cost < bestCost) { bestCost = cost; bestA = a; }
+  }
+
+  s.target = bestA;
+  s.boost = !!goal.boost && s.score >= 14 && !pinned && bestCost < 0.85;
 }
 
 // ---------- simulation ----------
