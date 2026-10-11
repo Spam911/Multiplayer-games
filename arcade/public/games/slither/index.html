@@ -1,4 +1,4 @@
-<<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -16,18 +16,73 @@
   #lb b{display:block;margin-bottom:4px}
   #lb div{display:flex;justify-content:space-between;gap:12px}
   #score{position:fixed;left:14px;top:12px;font-size:20px;font-weight:700}
-  #boost{position:fixed;left:24px;bottom:34px;width:88px;height:88px;border-radius:50%;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.3);display:none;align-items:center;justify-content:center;font-weight:700;user-select:none;-webkit-user-select:none;touch-action:none}
+  #boost{position:fixed;width:88px;height:88px;border-radius:50%;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.3);display:none;align-items:center;justify-content:center;font-weight:700;user-select:none;-webkit-user-select:none;touch-action:none}
   #boost.on{background:rgba(255,200,60,.55)}
-  #joy{position:fixed;right:24px;bottom:28px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.1);border:2px solid rgba(255,255,255,.25);display:none;touch-action:none;user-select:none;-webkit-user-select:none}
+  #joy{position:fixed;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.1);border:2px solid rgba(255,255,255,.25);display:none;touch-action:none;user-select:none;-webkit-user-select:none}
   #knob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;background:rgba(255,255,255,.45);pointer-events:none}
+  /* corner anchors for the touch controls */
+  .c-bl{left:24px;bottom:34px}.c-br{right:24px;bottom:28px}
+  .c-tl{left:24px;top:56px}.c-tr{right:24px;top:56px}
+
+  /* ---- settings panel ---- */
+  #gear{position:fixed;top:44px;left:14px;width:36px;height:36px;border-radius:10px;border:2px solid rgba(255,255,255,.25);background:rgba(0,0,0,.4);color:#fff;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:5}
+  #home{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:4;padding:6px 14px;border-radius:99px;background:rgba(0,0,0,.4);border:2px solid rgba(255,255,255,.18);color:#cfe0ff;text-decoration:none;font-size:13px}
+  #home:hover{border-color:#30d158;color:#fff}
+  #panel{position:fixed;top:88px;left:14px;width:214px;padding:12px;border-radius:12px;background:rgba(10,15,28,.94);border:2px solid #2c3a5c;z-index:6;display:flex;flex-direction:column;gap:11px;font-size:13px}
+  #panel[hidden]{display:none}
+  #panel .row{display:flex;flex-direction:column;gap:6px}
+  #panel .hd{display:flex;justify-content:space-between;align-items:center;font-weight:700;letter-spacing:1px}
+  #panel .val{font-weight:400;opacity:.75;font-variant-numeric:tabular-nums}
+  #panel input[type=range]{width:100%;accent-color:#30d158}
+  #panel .corners{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+  #panel .corners button{padding:7px 0;border-radius:7px;border:2px solid #2c3a5c;background:#101830;color:#fff;font-size:14px;cursor:pointer}
+  #panel .corners button.sel{background:#30d158;color:#04210d;border-color:#30d158}
+  #panel .hint{opacity:.65;line-height:1.4}
+  #panel .tgl{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  #panel .tgl button{flex:1;padding:6px 0;border-radius:7px;border:2px solid #2c3a5c;background:#101830;color:#fff;cursor:pointer;font-size:12px}
+  #panel .tgl button.sel{background:#30d158;color:#04210d;border-color:#30d158}
+  #panel .close{padding:8px 0;border-radius:8px;border:0;background:#2c3a5c;color:#fff;font-weight:700;cursor:pointer}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<a id="home" href="/" title="Back to the lobby">← Lobby</a>
 <div id="lb"><b>Leaderboard</b><span id="lbl"></span></div>
 <div id="score"></div>
 <div id="joy"><div id="knob"></div></div>
 <div id="boost">BOOST</div>
+<button id="gear" title="Controls &amp; sensitivity" aria-label="Controls">⚙</button>
+<div id="panel" hidden>
+  <div class="hd"><span>CONTROLS</span><span class="val" id="sensVal">1.0×</span></div>
+  <div class="row">
+    <label for="sens">Joystick sensitivity</label>
+    <input id="sens" type="range" min="0.4" max="2" step="0.1">
+    <span class="hint">Lower = smoother and heavier, higher = quicker to respond.</span>
+  </div>
+  <div class="tgl">
+    <span>Show touch controls</span>
+    <button id="tOn">Auto</button>
+  </div>
+  <div class="row">
+    <span>Joystick corner</span>
+    <div class="corners" id="posJoy">
+      <button data-p="c-tl" title="Top left">◤</button>
+      <button data-p="c-tr" title="Top right">◥</button>
+      <button data-p="c-bl" title="Bottom left">◣</button>
+      <button data-p="c-br" title="Bottom right">◢</button>
+    </div>
+  </div>
+  <div class="row">
+    <span>Boost button corner</span>
+    <div class="corners" id="posBoost">
+      <button data-p="c-tl" title="Top left">◤</button>
+      <button data-p="c-tr" title="Top right">◥</button>
+      <button data-p="c-bl" title="Bottom left">◣</button>
+      <button data-p="c-br" title="Bottom right">◢</button>
+    </div>
+  </div>
+  <button class="close" id="panelClose">Done</button>
+</div>
 <div id="menu">
   <h1>SLITHER</h1>
   <p id="msg">Mouse to steer · click or Space to boost</p>
@@ -96,28 +151,83 @@ function applySnapshot(m) {
   if (me) $('score').textContent = me.sc;
 }
 
-// ----- input -----
-const isTouch = matchMedia('(pointer: coarse)').matches;
-let mx = 0, my = 0, boost = false, joyAngle = 0;
+// ----- settings (joystick feel + where the touch controls sit) -----
+const DEFAULTS = { sens: 1, touch: 'auto', joy: 'c-br', boost: 'c-bl' };
+let cfg = { ...DEFAULTS };
+try { Object.assign(cfg, JSON.parse(localStorage.getItem('slither-cfg') || '{}')); } catch {}
 
-if (!isTouch) {
+const coarse = matchMedia('(pointer: coarse)').matches;
+let useTouch = cfg.touch === 'on' || (cfg.touch === 'auto' && coarse);
+let joyRaw = 0, joyAngle = 0;
+
+const saveCfg = () => localStorage.setItem('slither-cfg', JSON.stringify(cfg));
+
+function place(el, pos) {
+  el.classList.remove('c-tl', 'c-tr', 'c-bl', 'c-br');
+  el.classList.add(pos);
+}
+function syncCornerBtns() {
+  for (const [id, key] of [['posJoy', 'joy'], ['posBoost', 'boost']]) {
+    for (const b of $(id).children) b.classList.toggle('sel', b.dataset.p === cfg[key]);
+  }
+}
+function applyCfg() {
+  place($('joy'), cfg.joy);
+  place($('boost'), cfg.boost);
+  $('sens').value = cfg.sens;
+  $('sensVal').textContent = (+cfg.sens).toFixed(1) + '×';
+  $('tOn').textContent = { auto: 'Auto', on: 'On', off: 'Off' }[cfg.touch];
+  $('tOn').classList.toggle('sel', cfg.touch !== 'auto');
+  $('joy').style.display = useTouch ? 'block' : 'none';
+  $('boost').style.display = useTouch ? 'flex' : 'none';
+  $('msg').textContent = useTouch
+    ? 'Joystick to steer · hold BOOST to speed up'
+    : 'Mouse to steer · click or Space to boost';
+  syncCornerBtns();
+}
+$('tOn').addEventListener('click', () => {
+  const order = ['auto', 'on', 'off'];
+  cfg.touch = order[(order.indexOf(cfg.touch) + 1) % 3];
+  useTouch = cfg.touch === 'on' || (cfg.touch === 'auto' && coarse);
+  saveCfg(); applyCfg();
+});
+$('sens').addEventListener('input', e => {
+  cfg.sens = +e.target.value;
+  $('sensVal').textContent = cfg.sens.toFixed(1) + '×';
+  saveCfg();
+});
+for (const [id, key] of [['posJoy', 'joy'], ['posBoost', 'boost']]) {
+  $(id).addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    cfg[key] = b.dataset.p;
+    saveCfg(); applyCfg();
+  });
+}
+$('gear').addEventListener('click', () => { $('panel').hidden = !$('panel').hidden; });
+$('panelClose').addEventListener('click', () => { $('panel').hidden = true; });
+applyCfg();
+
+// ----- input -----
+let mx = 0, my = 0, boost = false;
+
+function bindDesktop() {
   addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; });
   addEventListener('mousedown', () => boost = true);
   addEventListener('mouseup', () => boost = false);
   addEventListener('keydown', e => { if (e.code === 'Space') boost = true; });
   addEventListener('keyup', e => { if (e.code === 'Space') boost = false; });
-} else {
-  $('msg').textContent = 'Joystick to steer · hold BOOST to speed up';
+}
+function bindTouch() {
   const joy = $('joy'), knob = $('knob'), bb = $('boost');
-  joy.style.display = 'block';
-  bb.style.display = 'flex';
   const R = 50;
   let active = null;
   const setKnob = e => {
     const r = joy.getBoundingClientRect();
     const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
     const d = Math.hypot(dx, dy);
-    if (d > 8) joyAngle = Math.atan2(dy, dx);
+    // dead zone tightens as sensitivity goes up, so a light touch still steers
+    if (d > 10 / cfg.sens) joyRaw = Math.atan2(dy, dx);
     const k = d > R ? R / d : 1;
     knob.style.transform = `translate(${dx * k}px,${dy * k}px)`;
   };
@@ -134,10 +244,21 @@ if (!isTouch) {
   bb.addEventListener('pointerup', endBoost);
   bb.addEventListener('pointercancel', endBoost);
 }
+bindDesktop();
+bindTouch();   // always bound, so toggling touch controls on works live
 
+const wrapAng = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
 setInterval(() => {
   if (!playing || ws.readyState !== 1) return;
-  const a = isTouch ? joyAngle : Math.atan2(my - H / 2, mx - W / 2);
+  let a;
+  if (useTouch) {
+    // ease toward the stick angle: sensitivity is how fast it follows your thumb
+    const k = 1 - Math.exp(-(33 / 1000) * 16 * cfg.sens);
+    joyAngle = wrapAng(joyAngle + wrapAng(joyRaw - joyAngle) * k);
+    a = joyAngle;
+  } else {
+    a = Math.atan2(my - H / 2, mx - W / 2);
+  }
   ws.send(JSON.stringify({ t: 'in', a: +a.toFixed(3), b: boost ? 1 : 0 }));
 }, 33);
 
