@@ -4,7 +4,8 @@
   "description": "Multiplayer arcade lobby with slither.io-style game",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node test-storm.js"
   },
   "dependencies": {
     "chess.js": "^1.4.0",

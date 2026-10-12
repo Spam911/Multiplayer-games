@@ -21,5 +21,14 @@ module.exports = [
     status: 'live',
     module: './chess',
   },
+  {
+    id: 'storm',
+    title: 'Storm Royale',
+    emoji: '🌪️',
+    description: 'Loot, build cover and outlast the storm. Last one standing wins.',
+    status: 'live',
+    module: './storm',
+    maxPayload: 2048,
+  },
   { id: 'soon2', title: 'Coming soon', emoji: '🎯', description: 'Another one is being planned.', status: 'soon' },
 ];

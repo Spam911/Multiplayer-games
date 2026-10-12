@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Storm Royale</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap">
+<style>
+:root{--f:"Lilita One","Trebuchet MS",system-ui,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:#14301c;color:#fff;font:700 14px "Trebuchet MS",system-ui,sans-serif;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+#g{position:fixed;inset:0;width:100%;height:100%;display:block}
+a{color:#cfe0ff}
+
+/* ---- top status pills (right padding clears the gear button) ---- */
+#top{position:fixed;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top,0px) + 8px) 54px 0 12px;display:flex;gap:8px;pointer-events:none;z-index:3}
+#top a.home{margin-left:auto;pointer-events:auto;background:#000a;border-radius:18px;padding:5px 12px;text-decoration:none;font-size:13px;border:2px solid #fff3}
+#top a.home:hover{border-color:#4ade80}
+.pill{background:#000a;border-radius:18px;padding:5px 11px;white-space:nowrap}
+
+/* ---- kill feed + toasts ---- */
+#feed{position:fixed;left:12px;top:calc(env(safe-area-inset-top,0px) + 46px);font-size:12px;pointer-events:none;text-shadow:0 1px 2px #000;z-index:3;max-width:46vw}
+#feed div{background:#000a;border-left:3px solid #facc15;padding:3px 9px;margin-bottom:3px;border-radius:5px;font:400 13px var(--f);animation:fi .25s}
+@keyframes fi{from{transform:translateX(-24px);opacity:0}}
+#toast{position:fixed;top:24%;left:50%;transform:translateX(-50%);font:400 28px var(--f);color:#facc15;text-shadow:0 3px 0 #000,0 0 12px #000;opacity:0;pointer-events:none;transition:opacity .3s;white-space:nowrap;z-index:4;text-align:center}
+
+/* ---- minimap ---- */
+#mm{position:fixed;right:calc(env(safe-area-inset-right,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 44px);width:104px;height:104px;border:2px solid #fff8;border-radius:6px;pointer-events:none;z-index:3}
+
+/* ---- bottom hud ---- */
+#bars{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 12px);width:min(300px,46vw);pointer-events:none;z-index:3}
+.bar{position:relative;height:20px;background:#000a;border:2px solid #fff3;border-radius:10px;overflow:hidden;margin:4px 0}
+.bar i{display:block;height:100%;width:0;transition:width .15s}
+.bar b{position:absolute;inset:0;text-align:center;font:400 13px/18px var(--f);text-shadow:0 1px 2px #000}
+#hp i{background:linear-gradient(#86efac,#16a34a)}#sh i{background:linear-gradient(#7dd3fc,#0284c7)}
+#wc{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:6px;width:max-content;max-width:96vw;position:relative;left:50%;transform:translateX(-50%)}
+#wn,#wd{padding:5px 12px;border-radius:10px;background:#000b;border:2px solid #fff3;font:400 15px var(--f);color:#fff}
+#wn{display:flex;align-items:center;gap:8px;pointer-events:auto;cursor:pointer;touch-action:manipulation;outline:0;transition:border-color .15s}
+#wn:active{transform:translateY(2px);background:#000e}
+#wi{width:56px;height:22px}
+#wp{display:flex;gap:4px}
+#wp i{width:9px;height:9px;border-radius:50%;background:#ffffff22;border:1.5px solid #ffffff44}
+#wp i.o{background:var(--c);border-color:#fff9}
+#wp i.c{outline:2px solid #fff;outline-offset:1px}
+#wk{font:400 11px var(--f);background:#ffffff26;border-radius:5px;padding:1px 6px;letter-spacing:.5px}
+#wd{display:flex;align-items:center;gap:5px}#wdi{width:22px;height:22px}#wdn{font:inherit}
+
+/* ---- build button ---- */
+#bb{display:none;position:fixed;right:calc(env(safe-area-inset-right,0px) + 24px);bottom:calc(env(safe-area-inset-bottom,0px) + 200px);width:76px;height:76px;border-radius:50%;border:3px solid #fff;background:#facc15;color:#422006;font:400 16px var(--f);box-shadow:0 5px 0 #b45309;z-index:3}
+#bb:active{transform:translateY(3px);box-shadow:0 2px 0 #b45309}
+#bb.no{background:#78716c}
+@media (max-height:600px){#bb{top:calc(env(safe-area-inset-top,0px) + 158px);bottom:auto;right:calc(env(safe-area-inset-right,0px) + 30px);width:64px;height:64px;font-size:14px}}
+
+/* ---- overlays ---- */
+#ov{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;overflow:auto;touch-action:pan-y;background:radial-gradient(circle at 50% 25%,#237a45,#0a1f12 75%);text-align:center;padding:20px;z-index:10}
+#ov[hidden]{display:none}
+#ov>div{width:100%;max-width:460px;margin:auto}
+p{margin:8px 0;font-weight:600;line-height:1.45}
+#ttl{font:400 clamp(38px,10vmin,64px)/.95 var(--f);color:#facc15;letter-spacing:2px;text-shadow:0 5px 0 #b45309,0 10px 14px #0008;transform:rotate(-3deg);margin-bottom:16px}
+#tips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:12px 0}
+#tips span{background:#ffffff1c;border-radius:20px;padding:6px 12px;font:400 14px var(--f)}
+#go{margin-top:12px;padding:14px 38px;font:400 22px var(--f);border:0;border-radius:14px;background:#facc15;color:#422006;box-shadow:0 6px 0 #b45309;cursor:pointer}
+#go:active{transform:translateY(4px);box-shadow:0 2px 0 #b45309}
+#go:disabled{background:#78716c;box-shadow:0 6px 0 #44403c;cursor:default}
+#cs{margin-top:12px;padding:10px 30px;font:400 18px var(--f);border:0;border-radius:12px;background:#ffffff26;color:#fff;box-shadow:0 5px 0 #0006;cursor:pointer}
+#cs:active{transform:translateY(3px);box-shadow:0 2px 0 #0006}
+#cbox{display:flex;justify-content:center;margin-top:14px}
+.sw{width:34px;height:34px;border-radius:50%;border:3px solid #fff3;cursor:pointer;padding:0}
+.sw.sel{border-color:#facc15;transform:scale(1.15)}
+
+/* status text inside overlays */
+#st1{font:400 17px var(--f);min-height:1.4em;opacity:.9}
+#st1 b{color:#facc15}
+#board{margin:14px auto 0;max-width:340px;text-align:left}
+#board div{display:flex;justify-content:space-between;gap:12px;padding:5px 10px;border-radius:8px;margin-bottom:4px;background:#ffffff14;font:400 15px var(--f)}
+#board div.me{background:#facc15;color:#422006}
+#board .n{display:flex;align-items:center;gap:7px;min-width:0}
+#board .n span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#board .dotc{width:11px;height:11px;border-radius:50%;flex:none}
+#board .tag{opacity:.6;font-size:12px}
+
+/* ---- settings ---- */
+#gear{position:fixed;z-index:11;top:calc(env(safe-area-inset-top,0px) + 6px);right:calc(env(safe-area-inset-right,0px) + 10px);width:34px;height:34px;padding:0;border-radius:50%;border:2px solid #fff4;background:#000b;color:#fff;font-size:17px;line-height:1;touch-action:manipulation;cursor:pointer}
+#gear:active{transform:translateY(2px)}
+#set{position:fixed;z-index:11;top:calc(env(safe-area-inset-top,0px) + 46px);right:calc(env(safe-area-inset-right,0px) + 10px);background:#0d1f14f2;border:2px solid #fff3;border-radius:14px;padding:10px 14px 12px;font:400 16px var(--f);min-width:190px;box-shadow:0 6px 18px #000a}
+#set[hidden]{display:none}
+#set h4{margin:0;font:400 18px var(--f);color:#facc15}
+.srow{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-top:10px}
+.tg{width:48px;height:26px;border-radius:13px;border:0;background:#475569;position:relative;padding:0;transition:background .15s;touch-action:manipulation;cursor:pointer;flex:none}
+.tg i{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s}
+.tg.on{background:#22c55e}.tg.on i{left:25px}
+</style>
+</head>
+<body>
+<canvas id="g"></canvas>
+
+<button id="gear" aria-label="Settings">⚙️</button>
+<div id="set" hidden><h4>Settings</h4>
+  <div class="srow"><span>🎵 Music</span><button class="tg on" id="tm" role="switch" aria-checked="true" aria-label="Music"><i></i></button></div>
+  <div class="srow"><span>🔊 Sounds</span><button class="tg on" id="ts" role="switch" aria-checked="true" aria-label="Sounds"><i></i></button></div>
+</div>
+
+<div id="top">
+  <span class="pill" id="al">👥 0</span>
+  <span class="pill" id="kl">💀 0</span>
+  <span class="pill" id="st">🌀 Storm</span>
+  <a class="home" href="/">← Lobby</a>
+</div>
+<div id="feed"></div>
+<div id="toast"></div>
+<canvas id="mm" width="104" height="104"></canvas>
+
+<div id="bars">
+  <div class="bar" id="sh"><i></i><b></b></div>
+  <div class="bar" id="hp"><i></i><b></b></div>
+  <div id="wc">
+    <button id="wn"><canvas id="wi" width="112" height="44"></canvas><span id="wt"></span><span id="wp"></span><span id="wk">TAB</span></button>
+    <span id="wd"><canvas id="wdi" width="44" height="44"></canvas><b id="wdn"></b></span>
+  </div>
+</div>
+<button id="bb">BUILD</button>
+
+<div id="ov">
+  <div>
+    <div id="ttl">STORM<br>ROYALE</div>
+    <p id="sub">Drop in with live players and bots. Loot up, build cover and outlast the storm.</p>
+    <div id="tips"><span>🔫 Loot weapons</span><span>🧱 Build walls</span><span>📦 Open chests</span><span>💀 Loot the fallen</span></div>
+    <p id="how"></p>
+    <p id="st1"></p>
+    <p id="board" hidden></p>
+    <input id="name" maxlength="16" placeholder="Nickname" autocomplete="off"
+           style="padding:12px 16px;font-size:18px;border-radius:10px;border:2px solid #ffffff40;background:#00000055;color:#fff;width:min(260px,80vw);text-align:center;outline:none;font:inherit">
+    <div id="cbox"></div>
+    <div><button id="go">DEPLOY</button></div>
+    <div><button id="cs">Change colour</button></div>
+  </div>
+</div>
+<script src="game.js"></script>
+</body>
+</html>
