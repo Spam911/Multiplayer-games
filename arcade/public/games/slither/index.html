@@ -93,9 +93,11 @@
   <button id="play">Play</button>
   <p id="acctLine" style="font-size:13px;opacity:.75;margin-top:2px"></p>
   <button id="acctBtn" class="acct-chip" style="margin-top:4px">👤 Sign in</button>
+  <button id="shopBtn" class="acct-chip" style="margin-top:6px">🛒 Shop</button>
 </div>
 <script src="/account.js"></script>
 <script src="/account-ui.js"></script>
+<script src="/shop-ui.js"></script>
 <script>
 const acctDialog = AccountUI.mount({ onChange() { location.reload(); } });
 </script>
@@ -304,20 +306,45 @@ function play() {
 $('play').onclick = play;
 $('name').addEventListener('keydown', e => { if (e.key === 'Enter') play(); });
 
-Account.load().then(() => {
+Account.load().then(async () => {
   $('name').value = Account.user ? Account.user.name : (localStorage.getItem('slither-name') || '');
   paintAccount();
+  await ShopUI.reload();   // after the account, so owned skins are visible
+  loadSkin();
 });
 $('acctBtn').onclick = () => Account.user
   ? Account.logout().then(() => location.reload())
   : acctDialog.open('login');
+$('shopBtn').onclick = () => ShopUI.open('slither');
 
 // ----- render -----
+// The bought skin recolours our own snake only; everyone else keeps theirs, so
+// you can still read the arena at a glance. A 'cycle' hue animates.
+let SKIN = null;
+function skinHue() {
+  // Resolved on demand rather than cached, so a purchase made in another tab (or
+  // straight from the API) shows up without a reload.
+  const eq = ShopUI.equipped('slither');
+  const skin = eq && eq.skin ? eq.skin : null;
+  if (!skin) return null;
+  return skin.hue === 'cycle' ? (performance.now() / 12) % 360 : skin.hue;
+}
+function currentSkin() {
+  const eq = ShopUI.equipped('slither');
+  return eq && eq.skin ? eq.skin : null;
+}
+window.onShopChange = () => {};
+
 function drawSnake(o, isMe) {
   const d = o.disp, n = d.length / 2, r = o.r;
-  if (o.b) { ctx.shadowColor = `hsl(${o.h},100%,60%)`; ctx.shadowBlur = 18; }
+  const skin = isMe ? currentSkin() : null;
+  const hue = skin ? skinHue() : null;
+  const alt = (skin && skin.alt) || 47;
+  if (o.b) { ctx.shadowColor = `hsl(${hue === null ? o.h : hue},100%,60%)`; ctx.shadowBlur = 18; }
   for (let i = n - 1; i >= 0; i--) {
-    ctx.fillStyle = `hsl(${o.h},80%,${i % 6 < 3 ? 56 : 47}%)`;
+    ctx.fillStyle = hue === null
+      ? `hsl(${o.h},80%,${i % 6 < 3 ? 56 : 47}%)`
+      : `hsl(${hue},80%,${i % 6 < 3 ? 56 : alt}%)`;
     ctx.beginPath(); ctx.arc(d[i * 2], d[i * 2 + 1], r, 0, 6.2832); ctx.fill();
   }
   ctx.shadowBlur = 0;

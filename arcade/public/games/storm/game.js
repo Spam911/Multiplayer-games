@@ -396,7 +396,7 @@ function onMessage(m) {
       others.clear();
       shots = []; lootItems = []; boards = []; stains = [];
       storm = null; aliveCount = 0; clock = 0;
-      outcome = null; standing = null; feed = []; FX.length = 0;
+      outcome = null; standing = null; feed = []; FX.length = 0; trailPts = [];
       renderFeed();
       cacheSolids();
       break;
@@ -771,6 +771,49 @@ function drawBushes(cm, hw, hh) {
 }
 const inBush = b => self && Math.hypot(self.px - b.x, self.py - b.y) < b.r;
 
+// Bought trail: particles dropped behind our own player only. Kept short and
+// cheap, and cleared on death so nothing is left drifting.
+let TRAIL_FX = null, SHOT_FX = null, trailPts = [];
+function trailColour() {
+  if (!TRAIL_FX) return null;
+  if (TRAIL_FX.rb) return `hsl(${(clock * 70) % 360},95%,60%)`;
+  return TRAIL_FX.cols[Math.floor(Math.random() * TRAIL_FX.cols.length)];
+}
+function drawTrail(x, y) {
+  if (!TRAIL_FX) return;
+  const last = trailPts[trailPts.length - 1];
+  if (!last || Math.hypot(x - last.x, y - last.y) > 7) {
+    trailPts.push({ x: x + (Math.random() - .5) * 5, y: y + (Math.random() - .5) * 5,
+      l: TRAIL_FX.l || .5, m: TRAIL_FX.l || .5,
+      r: TRAIL_FX.r[0] + Math.random() * (TRAIL_FX.r[1] - TRAIL_FX.r[0]),
+      col: trailColour(), vy: TRAIL_FX.up ? -30 : 0 });
+    if (trailPts.length > 160) trailPts.shift();
+  }
+}
+function stepTrail(dt) {
+  for (let i = trailPts.length - 1; i >= 0; i--) {
+    const p = trailPts[i];
+    p.l -= dt; p.y += p.vy * dt;
+    if (p.l <= 0) trailPts.splice(i, 1);
+  }
+}
+function drawTrailPass(view, hw, hh) {
+  if (!TRAIL_FX || !trailPts.length) return;
+  for (const p of trailPts) {
+    if (Math.abs(p.x - view.x) > hw || Math.abs(p.y - view.y) > hh) continue;
+    c.globalAlpha = clamp(p.l / p.m, 0, 1) * .9;
+    c.fillStyle = p.col;
+    c.beginPath(); c.arc(p.x, p.y, p.r * (.4 + .6 * p.l / p.m), 0, TAU); c.fill();
+  }
+  c.globalAlpha = 1;
+}
+function applyCosmeticFx() {
+  const eq = ShopUI.equipped('storm');
+  TRAIL_FX = eq && eq.trail && eq.trail.id !== 'none' ? eq.trail : null;
+  SHOT_FX = eq && eq.bullet ? eq.bullet : null;
+  if (!TRAIL_FX) trailPts = [];
+}
+
 function drawPlayer(o, isMe) {
   const r = roster.get(o.id);
   const col = r ? r.col : '#e5e7eb';
@@ -1130,6 +1173,7 @@ function frame(now) {
   const k = 1 - Math.exp(-dt * 16);
   for (const o of others.values()) { o.px += (o.x - o.px) * k; o.py += (o.y - o.py) * k; }
   for (const b of shots) { b.px += (b.x - b.px) * k; b.py += (b.y - b.py) * k; }
+  stepTrail(dt);
   // A throw inside draw() used to stop requestAnimationFrame for good, which
   // froze the game on a blank island while the server kept playing it. Draw in
   // isolation and always schedule the next frame, so one bad frame costs a
@@ -1201,6 +1245,7 @@ function draw() {
   drawIsland(view, hw, hh, t);
   drawStains(view, hw, hh);
   drawScenery(view, hw, hh);
+  drawTrailPass(view, hw, hh);
   drawLoot(view, hw, hh, t);
 
   // wall-build ghost in front of us.
@@ -1216,10 +1261,22 @@ function draw() {
     c.globalAlpha = 1;
   }
 
-  // bullets
-  c.strokeStyle = '#fde68a'; c.lineWidth = 2.5;
+  // bullets, tinted with the bought shot cosmetic
+  const bs = SHOT_FX && SHOT_FX.rb
+    ? `hsl(${(clock * 90) % 360},95%,60%)`
+    : (SHOT_FX && SHOT_FX.col) || '#fde68a';
+  c.strokeStyle = bs;
+  c.lineWidth = (SHOT_FX && SHOT_FX.w) || 2.5;
+  if (SHOT_FX && SHOT_FX.glow) {
+    c.save();
+    c.globalAlpha = .3; c.strokeStyle = SHOT_FX.glow; c.lineWidth = c.lineWidth * 2.6;
+    c.beginPath();
+    for (const b of shots) { c.moveTo(b.px - b.vx * (SHOT_FX.tail || .05), b.py - b.vy * (SHOT_FX.tail || .05)); c.lineTo(b.px, b.py); }
+    c.stroke();
+    c.restore();
+  }
   c.beginPath();
-  for (const b of shots) { c.moveTo(b.px - b.vx * .025, b.py - b.vy * .025); c.lineTo(b.px, b.py); }
+  for (const b of shots) { c.moveTo(b.px - b.vx * ((SHOT_FX && SHOT_FX.tail) || .025), b.py - b.vy * ((SHOT_FX && SHOT_FX.tail) || .025)); c.lineTo(b.px, b.py); }
   c.stroke();
 
   // players: draw others first, ourselves on top
@@ -1238,7 +1295,10 @@ function draw() {
       drawPlayer({ ...o, x: o.px, y: o.py }, false);
     }
   }
-  if (self && stats.alive) drawPlayer({ ...self, x: self.px, y: self.py, wp: stats.wp }, true);
+  if (self && stats.alive) {
+    drawTrail(self.px, self.py);
+    drawPlayer({ ...self, x: self.px, y: self.py, wp: stats.wp }, true);
+  }
 
   // floating damage numbers
   for (const f of FX) {
@@ -1298,12 +1358,53 @@ $('name').addEventListener('input', () => {
 $('ab').onclick = () => Account.user ? Account.logout().then(() => location.reload()) : acctDialog.open('login');
 Account.load().then(paintAccount);
 
+// ---------- cosmetics ----------
+// Colours, trails and shots are bought in the shop with account tokens. Guests
+// get the free starters, so the deploy screen is never empty, and the picker
+// only offers what this player actually owns.
+let ownedColours = [{ id: 'gold', col: '#facc15', hex: '#facc15' }];
 let colour = localStorage.getItem('storm-col') || COLS[0];
 if (!COLS.includes(colour)) colour = COLS[0];
+
 function renderColours() {
-  $('cbox').innerHTML = COLS.map(col =>
-    `<button class="sw ${col === colour ? 'sel' : ''}" style="background:${col}" data-c="${col}" aria-label="Colour ${col}"></button>`).join('');
+  $('cbox').innerHTML = ownedColours.map(c => {
+    const bg = c.col === 'rainbow'
+      ? 'conic-gradient(#ef4444,#facc15,#22c3ee,#a855f7,#ef4444)'
+      : c.col;
+    return `<button class="sw ${c.hex === colour ? 'sel' : ''}" style="background:${bg}"
+      data-c="${c.hex}" data-id="${c.id}" title="${c.id}" aria-label="${c.id}"></button>`;
+  }).join('');
 }
+
+// Pull the owned colour ids out of the shop state and turn them into the hexes
+// the deploy picker and the server expect. 'rainbow' has no single hex, so it
+// falls back to gold on the picker and is sent as gold to the server.
+// Owned colours as picker entries. Each entry keeps its catalogue id so the
+// picker can show special swatches (prism is a gradient, not one hex) and so
+// selecting one can pick the right value to send.
+function applyOwnedColours() {
+  const shop = ShopUI.raw().shop;
+  const owned = shop && shop.owned && shop.owned.storm && shop.owned.storm.colour;
+  const list = [];
+  if (owned) {
+    for (const id in owned) {
+      if (!owned[id]) continue;
+      const it = shopItem('storm', 'colour', id);
+      if (!it) continue;
+      list.push({ id, col: it.col === 'rainbow' ? 'rainbow' : it.col, hex: it.col === 'rainbow' ? '#facc15' : it.col });
+    }
+  }
+  // Gold is the account starter, so always offered.
+  if (!list.some(c => c.id === 'gold')) list.unshift({ id: 'gold', col: '#facc15', hex: '#facc15' });
+  ownedColours = list;
+  if (!list.some(c => c.hex === colour)) colour = list[0].hex;
+  renderColours();
+}
+
+function shopItem(game, cat, id) {
+  return ShopUI.item(game, cat, id);
+}
+
 renderColours();
 $('cbox').addEventListener('click', e => {
   const b = closest(e, '.sw');
@@ -1313,6 +1414,20 @@ $('cbox').addEventListener('click', e => {
   Account.saveSetting('stormColour', colour);
   renderColours();
 });
+
+// Shop button lives beside the settings gear and on the deploy screen.
+$('shopBtn').onclick = () => ShopUI.open('storm');
+$('shopBtn2').onclick = () => ShopUI.open('storm');
+window.onShopChange = () => { applyOwnedColours(); applyCosmeticFx(); };
+// Re-read the shop once the account is known, otherwise it loads as a guest and
+// only the free starter looks owned. Re-runs on sign-in so a fresh login shows
+// everything the account already owns.
+const syncCosmetics = async () => {
+  await ShopUI.reload();
+  applyOwnedColours();
+  applyCosmeticFx();
+};
+Account.load().then(syncCosmetics);
 
 // ---- deploy ----
 const deployName = () => Account.nickname($('name').value);

@@ -273,7 +273,9 @@ const api = {
   setSettings(u, patch) {
     if (!api.isPlayable(u) || !patch || typeof patch !== 'object') return publicUser(u);
     for (const [k, v] of Object.entries(patch)) {
-      if (!/^[a-zA-Z0-9_.-]{1,32}$/.test(k)) continue;
+      // Colons separate the game from the category in shop keys (chess:theme),
+      // so they have to be allowed here or an equipped item never persists.
+      if (!/^[a-zA-Z0-9_.:-]{1,40}$/.test(k)) continue;
       if (typeof v === 'boolean' || typeof v === 'number' || (typeof v === 'string' && v.length <= 64)) {
         u.settings[k] = v;
       }
@@ -310,6 +312,70 @@ const api = {
     bag[itemId] = (bag[itemId] || 0) + 1;
     save();
     return { tokens: u.tokens, inventory: u.inventory };
+  },
+
+  // ---------- shop ----------
+
+  // What this account owns, and what it has equipped, in the shape the shop UI
+  // wants. Free starters count as owned so a new account is never locked out of
+  // the default look. Guests get the same shape so the shop can render, but
+  // everything is flagged unowned until they sign in.
+  shopState(u) {
+    const shop = require('./shop');
+    const out = { tokens: u ? u.tokens : 0, owned: {}, equipped: {}, playable: api.isPlayable(u) };
+    for (const [game, def] of Object.entries(shop.GAMES)) {
+      const bag = (u && u.inventory && u.inventory[game]) || {};
+      const owned = {};
+      for (const cat of def.categories) {
+        owned[cat.id] = {};
+        for (const item of cat.items) {
+          const free = item.p === 0;
+          owned[cat.id][item.id] = free || (bag[item.id] || 0) > 0;
+        }
+      }
+      out.owned[game] = owned;
+      const eq = {};
+      for (const [cat, dflt] of Object.entries(shop.STARTERS[game] || {})) {
+        // Honour the equipped item, but only if it is actually owned, so a stale
+        // or hand-edited setting can never put a missing item on the board.
+        const want = u && u.settings ? u.settings[game + ':' + cat] : undefined;
+        eq[cat] = owned[cat] && owned[cat][want] ? want : dflt;
+      }
+      out.equipped[game] = eq;
+    }
+    return out;
+  },
+
+  // Buy one catalogue item. The price comes from the catalogue, never from the
+  // request, and an item already owned cannot be bought twice.
+  buy(u, gameId, cat, itemId) {
+    if (!api.isPlayable(u)) return { error: 'Sign in with a validated account to buy' };
+    const shop = require('./shop');
+    const item = shop.item(gameId, cat, itemId);
+    if (!item) return { error: 'No such item' };
+    if (item.p === 0) return { error: 'This item is free' };
+    const bag = u.inventory[gameId] || (u.inventory[gameId] = {});
+    if ((bag[item.id] || 0) > 0) return { error: 'You already own this' };
+    if (u.tokens < item.p) return { error: 'Not enough tokens' };
+    u.tokens -= item.p;
+    bag[item.id] = 1;
+    // Buying equips it, so a new item is immediately usable.
+    u.settings[gameId + ':' + cat] = item.id;
+    save();
+    return { item, shop: api.shopState(u), user: publicUser(u) };
+  },
+
+  // Equip something already owned. Refuses anything not in the bag.
+  equip(u, gameId, cat, itemId) {
+    if (!api.isPlayable(u)) return { error: 'Sign in with a validated account to equip' };
+    const shop = require('./shop');
+    const item = shop.item(gameId, cat, itemId);
+    if (!item) return { error: 'No such item' };
+    const bag = u.inventory[gameId] || {};
+    if (item.p > 0 && !(bag[item.id] > 0)) return { error: 'You do not own this' };
+    u.settings[gameId + ':' + cat] = item.id;
+    save();
+    return { item, shop: api.shopState(u), user: publicUser(u) };
   },
 
   // ---------- leaderboard ----------

@@ -8,7 +8,7 @@
 <style>
   :root{color-scheme:dark}
   *{box-sizing:border-box}
-  body{margin:0;min-height:100vh;background:radial-gradient(1200px 600px at 50% -10%,#16234a 0,#0b0f1a 60%);color:#fff;font-family:system-ui,sans-serif}
+  body{margin:0;min-height:100vh;background:radial-gradient(1200px 600px at 50% -10%,var(--bg,#16234a) 0,#0b0f1a 60%);color:#fff;font-family:system-ui,sans-serif;transition:background .4s}
   [hidden]{display:none!important}
   .wrap{max-width:960px;margin:0 auto;padding:18px 16px 40px}
   header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
@@ -43,8 +43,8 @@
   .dot.wh{background:#fff}.dot.bk{background:#111}
   .board{--s:min(94vw,calc(100vh - 250px),620px);width:var(--s);height:var(--s);display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);border-radius:6px;overflow:hidden;user-select:none;-webkit-user-select:none}
   .sq{position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:calc(var(--s)/8*.78)}
-  .sq.l{background:#eeeed2;color:#769656}
-  .sq.d{background:#769656;color:#eeeed2}
+  .sq.l{background:var(--sq-light,#eeeed2);color:var(--sq-dark,#769656)}
+  .sq.d{background:var(--sq-dark,#769656);color:var(--sq-light,#eeeed2)}
   .sq.last{box-shadow:inset 0 0 0 100px rgba(255,235,59,.38)}
   .sq.sel{box-shadow:inset 0 0 0 100px rgba(80,160,255,.55)}
   /* King in check: paint a red glow over the tile. This has to be a pseudo-element -
@@ -99,6 +99,7 @@
     <a class="back" href="/">← Lobby</a>
     <h1>♟ CHESS</h1>
     <span id="acctChip" class="conn bad" style="cursor:pointer">👤 …</span>
+    <span id="shopBtn" class="conn ok" style="cursor:pointer" title="Buy board themes">🛒 Shop</span>
     <span id="conn" class="conn bad">Connecting…</span>
   </header>
 
@@ -129,6 +130,10 @@
     </div>
   </section>
 </div>
+
+<script src="/account.js"></script>
+<script src="/account-ui.js"></script>
+<script src="/shop-ui.js"></script>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -399,6 +404,29 @@ $('backBtn').addEventListener('click', () => {
 
 // ---------- start ----------
 function begin() { $('gate').hidden = true; connect(); }
+
+// ---------- shop / board theme ----------
+// The equipped theme is pushed into CSS variables, so the board and the page
+// wash recolour without touching the drawing code.
+function applyTheme(theme) {
+  if (!theme) return;
+  const r = document.documentElement.style;
+  r.setProperty('--sq-light', theme.light);
+  r.setProperty('--sq-dark', theme.dark);
+  r.setProperty('--bg', theme.bg);
+}
+window.onShopChange = shop => {
+  const eq = ShopUI.equipped('chess');
+  if (eq && eq.theme) applyTheme(eq.theme);
+};
+$('shopBtn').onclick = () => ShopUI.open('chess');
+// Order matters: the shop has to be read *after* the account is known, or it
+// loads as a guest and every owned item looks unowned.
+const applyEquippedTheme = () => {
+  const eq = ShopUI.equipped('chess');
+  if (eq && eq.theme) applyTheme(eq.theme);
+};
+
 // Account chip: sign in/out without leaving the page.
 const acctDialog = AccountUI.mount({ onChange() { location.reload(); } });
 function paintAccount() {
@@ -414,7 +442,9 @@ function paintAccount() {
 $('acctChip').onclick = () => Account.user
   ? Account.logout().then(() => location.reload())
   : acctDialog.open('login');
-Account.load().then(paintAccount).then(() => {
+Account.load().then(paintAccount).then(async () => {
+  await ShopUI.reload();      // after the account, so owned items are visible
+  applyEquippedTheme();
   if (Account.user || name) begin();
   else {
     $('gate').hidden = false;
@@ -429,7 +459,5 @@ Account.load().then(paintAccount).then(() => {
   }
 });
 </script>
-<script src="/account.js"></script>
-<script src="/account-ui.js"></script>
 </body>
 </html>

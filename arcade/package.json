@@ -5,8 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test-accounts.js && node test-storm.js",
+    "test": "node test-accounts.js && node test-shop.js && node test-storm.js",
     "test:accounts": "node test-accounts.js",
+    "test:shop": "node test-shop.js",
     "test:storm": "node test-storm.js"
   },
   "dependencies": {

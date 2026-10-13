@@ -132,6 +132,7 @@ p{margin:8px 0;font-weight:600;line-height:1.45}
   <div class="srow"><span>🎵 Music</span><button class="tg on" id="tm" role="switch" aria-checked="true" aria-label="Music"><i></i></button></div>
   <div class="srow"><span>🔊 Sounds</span><button class="tg on" id="ts" role="switch" aria-checked="true" aria-label="Sounds"><i></i></button></div>
   <div class="srow"><span>👤 Account</span><button id="ab" style="padding:6px 12px;border-radius:9px;border:2px solid #fff4;background:#ffffff1a;color:#fff;font:400 14px var(--f);cursor:pointer">Sign in</button></div>
+  <div class="srow"><span>🛒 Shop</span><button id="shopBtn" style="padding:6px 12px;border-radius:9px;border:2px solid #fff4;background:#ffffff1a;color:#fff;font:400 14px var(--f);cursor:pointer">Open</button></div>
   <div id="acctInfo" style="font:400 13px var(--f);opacity:.75;margin-top:8px"></div>
 </div>
 
@@ -172,6 +173,7 @@ p{margin:8px 0;font-weight:600;line-height:1.45}
     <div class="bigbtns">
       <button id="mk">CREATE GAME</button>
       <button id="qk" class="alt">Quick play</button>
+      <button id="shopBtn2" class="alt">🛒 Shop</button>
     </div>
     <p id="hint" class="hint"></p>
     <h3 class="hdr">OPEN GAMES</h3>
@@ -209,6 +211,7 @@ p{margin:8px 0;font-weight:600;line-height:1.45}
 </div>
 <script src="/account.js"></script>
 <script src="/account-ui.js"></script>
+<script src="/shop-ui.js"></script>
 <script>window.acctDialog = AccountUI.mount({ onChange() { location.reload(); } });</script>
 <script src="game.js"></script>
 </body>

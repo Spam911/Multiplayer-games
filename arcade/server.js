@@ -5,6 +5,7 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 const catalog = require('./games');
 const accounts = require('./lib/accounts');
+const shop = require('./lib/shop');
 const { ok, bad, readJson, clientIp } = require('./lib/http');
 
 const PORT = +process.env.PORT || 3000;
@@ -78,6 +79,30 @@ async function accountsApi(req, res, url) {
     if (!me) return bad(res, 401, 'Not signed in');
     const b = await readJson(req);
     return ok(res, { user: accounts.setSettings(me, b) });
+  }
+
+  // ---------- shop ----------
+  // Guests get the catalogue and a view of the shop with nothing owned, so the
+  // UI can render and explain that signing in is what unlocks buying. Buying and
+  // equipping require a validated account and are priced server side.
+  if (url === '/api/shop' && req.method === 'GET') {
+    return ok(res, { catalogue: shop.catalogue(), shop: accounts.shopState(me) });
+  }
+
+  if (url === '/api/shop/buy' && req.method === 'POST') {
+    if (!me) return bad(res, 401, 'Sign in to buy');
+    const b = await readJson(req);
+    const r = accounts.buy(me, String(b.game || ''), String(b.cat || ''), String(b.id || ''));
+    if (r.error) return bad(res, 400, r.error);
+    return ok(res, { bought: r.item, shop: r.shop, user: r.user });
+  }
+
+  if (url === '/api/shop/equip' && req.method === 'POST') {
+    if (!me) return bad(res, 401, 'Sign in to equip');
+    const b = await readJson(req);
+    const r = accounts.equip(me, String(b.game || ''), String(b.cat || ''), String(b.id || ''));
+    if (r.error) return bad(res, 400, r.error);
+    return ok(res, { equipped: r.item, shop: r.shop, user: r.user });
   }
 
   if (url === '/api/leaderboard' && req.method === 'GET') {
