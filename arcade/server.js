@@ -4,6 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const catalog = require('./games');
+const accounts = require('./lib/accounts');
+const { ok, bad, readJson, clientIp } = require('./lib/http');
 
 const PORT = +process.env.PORT || 3000;
 const PUBLIC = path.join(__dirname, 'public');
@@ -28,7 +30,98 @@ function gamesInfo() {
     id: g.id, title: g.title, emoji: g.emoji, description: g.description, status: g.status,
     online: live.has(g.id) ? live.get(g.id).clients.size : 0,
   }));
-  return { games, total: games.reduce((n, g) => n + g.online, 0) };
+  // One person in two games counts once: dedupe the sockets by identity, with
+  // every unsigned connection lumped together as "guest".
+  const online = new Set();
+  for (const wss of live.values()) for (const ws of wss.clients) online.add(ws.playerId || 'guest');
+  const guests = [...online].filter(id => id === 'guest').length;
+  return {
+    games,
+    total: games.reduce((n, g) => n + g.online, 0),
+    playersOnline: online.size,
+    accounts: online.size - guests,
+  };
+}
+
+// ---------- account API ----------
+// Guests never touch these. An account is only usable once an admin validated
+// it; until then the player keeps playing as a guest everywhere.
+
+async function accountsApi(req, res, url) {
+  const me = accounts.userFromRequest(req);
+
+  if (url === '/api/auth/me' && req.method === 'GET') {
+    return ok(res, { user: accounts.isPlayable(me) ? accounts.publicUser(me) : null, admin: accounts.isAdmin(me) });
+  }
+
+  if (url === '/api/auth/register' && req.method === 'POST') {
+    const b = await readJson(req);
+    const r = accounts.register(b.name, b.password, clientIp(req));
+    if (r.error) return bad(res, 400, r.error);
+    return ok(res, { user: r.user, pending: true });
+  }
+
+  if (url === '/api/auth/login' && req.method === 'POST') {
+    const b = await readJson(req);
+    const r = accounts.login(b.name, b.password, clientIp(req));
+    if (r.error === 'pending') return bad(res, 403, 'Your account is still waiting for admin validation');
+    if (r.error === 'rejected') return bad(res, 403, 'Your account was rejected by the admin');
+    if (r.error) return bad(res, 401, r.error);
+    return ok(res, { user: r.user, admin: r.user.role === 'admin' }, { 'Set-Cookie': accounts.sessionCookie(r.token) });
+  }
+
+  if (url === '/api/auth/logout' && req.method === 'POST') {
+    return ok(res, { ok: true }, { 'Set-Cookie': accounts.clearCookie() });
+  }
+
+  if (url === '/api/auth/settings' && req.method === 'POST') {
+    if (!me) return bad(res, 401, 'Not signed in');
+    const b = await readJson(req);
+    return ok(res, { user: accounts.setSettings(me, b) });
+  }
+
+  if (url === '/api/leaderboard' && req.method === 'GET') {
+    return ok(res, { leaderboard: accounts.leaderboard(50), me: accounts.isPlayable(me) ? accounts.publicUser(me) : null });
+  }
+
+  if (url === '/api/games/summary' && req.method === 'GET') {
+    // Per game XP/leaderboards, built from the catalog so new games show up.
+    const rows = catalog.filter(g => g.status === 'live').map(g => ({
+      id: g.id, title: g.title, emoji: g.emoji,
+      top: accounts.leaderboard(200)
+        .filter(e => e.games[g.id])
+        .sort((a, b) => b.games[g.id].xp - a.games[g.id].xp)
+        .slice(0, 10)
+        .map(e => ({ name: e.name, xp: e.games[g.id].xp, wins: e.games[g.id].wins, plays: e.games[g.id].plays })),
+    }));
+    return ok(res, { games: rows });
+  }
+
+  // ---- admin only ----
+  if (url.startsWith('/api/admin/')) {
+    if (!accounts.isAdmin(me)) return bad(res, 403, 'Admin only');
+    if (url === '/api/admin/pending' && req.method === 'GET') {
+      return ok(res, { users: accounts.adminList('pending'), stats: accounts.stats() });
+    }
+    if (url === '/api/admin/users' && req.method === 'GET') {
+      return ok(res, { users: accounts.adminList('all'), stats: accounts.stats() });
+    }
+    const m = /^\/api\/admin\/user\/([^/]+)$/.exec(url);
+    if (m && req.method === 'POST') {
+      const b = await readJson(req);
+      const name = decodeURIComponent(m[1]);
+      let r;
+      if (b.action === 'validate') r = accounts.setStatus(me, name, 'active');
+      else if (b.action === 'reject') r = accounts.setStatus(me, name, 'rejected');
+      else if (b.action === 'pending') r = accounts.setStatus(me, name, 'pending');
+      else if (b.action === 'grant') r = accounts.grant(me, name, { xp: b.xp, tokens: b.tokens });
+      else if (b.action === 'delete') r = accounts.remove(me, name);
+      else return bad(res, 400, 'Unknown action');
+      if (r.error) return bad(res, 400, r.error);
+      return ok(res, r);
+    }
+  }
+  return bad(res, 404, 'Not found');
 }
 
 function serveStatic(req, res) {
@@ -57,6 +150,10 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     return res.end(JSON.stringify(gamesInfo()));
   }
+  if (url.startsWith('/api/')) {
+    accountsApi(req, res, url).catch(() => { try { bad(res, 500, 'Server error'); } catch {} });
+    return;
+  }
   serveStatic(req, res);
 });
 
@@ -69,6 +166,11 @@ server.on('upgrade', (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, ws => {
     ws.isAlive = true;
     ws.on('pong', () => { ws.isAlive = true; });
+    // Identity travels with the socket: a validated account keeps its name,
+    // XP and saved settings, everyone else is just a guest.
+    const u = accounts.userFromRequest(req);
+    ws.account = accounts.isPlayable(u) ? u : null;
+    ws.playerId = ws.account ? ws.account.id : 'guest';
     wss.emit('connection', ws, req);
   });
 });

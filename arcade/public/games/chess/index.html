@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Chess</title>
+<link rel="stylesheet" href="/account.css">
 <style>
   :root{color-scheme:dark}
   *{box-sizing:border-box}
@@ -97,6 +98,7 @@
   <header>
     <a class="back" href="/">← Lobby</a>
     <h1>♟ CHESS</h1>
+    <span id="acctChip" class="conn bad" style="cursor:pointer">👤 …</span>
     <span id="conn" class="conn bad">Connecting…</span>
   </header>
 
@@ -173,7 +175,7 @@ function connect() {
   setConn('Connecting…', false);
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws/chess`);
-  ws.onopen = () => send({ t: 'hello', name, token: sessionStorage.getItem('chess-token') || undefined });
+  ws.onopen = () => send({ t: 'hello', name: Account.nickname(name), token: sessionStorage.getItem('chess-token') || undefined });
   ws.onmessage = ev => handle(JSON.parse(ev.data));
   ws.onclose = () => {
     setConn('Disconnected — reconnecting…', false);
@@ -188,6 +190,11 @@ function handle(m) {
       me = { id: m.id, name: m.name };
       sessionStorage.setItem('chess-token', m.token);
       setConn('Online as ' + m.name, true);
+      if (m.account && Account.user) Account.load().then(paintAccount);
+      break;
+    case 'reward':
+      Account.rewardToast(m.reward);
+      Account.load().then(paintAccount);
       break;
     case 'players': players = m.list; renderPlayers(); break;
     case 'incoming': incoming.set(m.cid, m.from); renderBanners(); break;
@@ -392,17 +399,37 @@ $('backBtn').addEventListener('click', () => {
 
 // ---------- start ----------
 function begin() { $('gate').hidden = true; connect(); }
-if (name) begin();
-else {
-  $('gate').hidden = false;
-  const join = () => {
-    const n = $('gname').value.trim().slice(0, 16);
-    if (!n) return;
-    name = n; localStorage.setItem('nickname', n); begin();
-  };
-  $('gjoin').onclick = join;
-  $('gname').addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
+// Account chip: sign in/out without leaving the page.
+const acctDialog = AccountUI.mount({ onChange() { location.reload(); } });
+function paintAccount() {
+  const u = Account.user;
+  const chip = $('acctChip');
+  chip.textContent = u ? `👤 ${u.name} · Lv ${u.level} · ⛁ ${u.tokens}` : '👤 Sign in';
+  chip.className = 'conn ' + (u ? 'ok' : 'bad');
+  chip.title = u ? `${u.xp} XP — click to sign out` : 'Sign in to save progress';
+  $('gname').disabled = !!u;
+  $('gname').placeholder = u ? 'Playing as ' + u.name : 'Nickname';
+  name = Account.nickname(name);
 }
+$('acctChip').onclick = () => Account.user
+  ? Account.logout().then(() => location.reload())
+  : acctDialog.open('login');
+Account.load().then(paintAccount).then(() => {
+  if (Account.user || name) begin();
+  else {
+    $('gate').hidden = false;
+    const join = () => {
+      const n = Account.nickname($('gname').value).trim().slice(0, 16);
+      if (!n) return;
+      if (!Account.user) localStorage.setItem('nickname', n);
+      name = n; begin();
+    };
+    $('gjoin').onclick = join;
+    $('gname').addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
+  }
+});
 </script>
+<script src="/account.js"></script>
+<script src="/account-ui.js"></script>
 </body>
 </html>

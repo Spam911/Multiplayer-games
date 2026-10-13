@@ -1,0 +1,30 @@
+/* Account bits: header chip, auth dialog, level bar, leaderboard and the
+   reward toast. Shared by the lobby, the admin panel and every game page. */
+
+.acct-chip{display:flex;align-items:center;gap:8px;padding:7px 13px;border-radius:12px;background:#101830;border:2px solid #22305a;cursor:pointer;color:#fff;font:inherit;font-size:14px;transition:border-color .12s}
+.acct-chip:hover{border-color:#30d158}
+.acct-chip .lvl{min-width:26px;height:26px;padding:0 6px;border-radius:8px;background:#30d158;color:#04210d;font-weight:800;font-size:13px;display:grid;place-items:center}
+.acct-chip .tok{color:#f5c451;font-weight:700}
+
+.acct-bar{height:6px;border-radius:3px;background:#ffffff1a;overflow:hidden;margin-top:4px}
+.acct-bar i{display:block;height:100%;background:linear-gradient(90deg,#30d158,#7dd3fc)}
+
+dialog.acct{border:2px solid #22305a;border-radius:16px;background:#0e1528;color:#fff;padding:0;width:min(420px,92vw);font-family:system-ui,sans-serif;box-shadow:0 20px 60px #000a}
+dialog.acct::backdrop{background:#000a}
+dialog.acct form{padding:24px}
+dialog.acct h3{margin:0 0 4px;font-size:22px}
+dialog.acct .hint{margin:0 0 16px;font-size:13px;opacity:.7;line-height:1.5}
+dialog.acct label{display:block;font-size:12px;text-transform:uppercase;letter-spacing:1px;opacity:.7;margin:12px 0 5px}
+dialog.acct input{width:100%;padding:11px 13px;font-size:16px;border-radius:10px;border:2px solid #22305a;background:#0a1020;color:#fff;outline:none;font-family:inherit}
+dialog.acct input:focus{border-color:#30d158}
+dialog.acct .err{min-height:20px;margin:10px 0 0;font-size:14px;color:#ff6b6b}
+dialog.acct .ok{color:#30d158}
+dialog.acct .row{display:flex;gap:10px;margin-top:14px}
+dialog.acct button{flex:1;padding:12px;border-radius:10px;border:0;background:#30d158;color:#04210d;font:700 15px inherit;cursor:pointer;font-family:inherit}
+dialog.acct button.ghost{background:#22305a;color:#fff}
+dialog.acct button:disabled{opacity:.5;cursor:default}
+dialog.acct .switch{margin-top:16px;text-align:center;font-size:13px;opacity:.8}
+dialog.acct .switch a{color:#7dd3fc;cursor:pointer}
+
+.acct-toast{position:fixed;left:50%;top:22px;transform:translateX(-50%);z-index:60;padding:10px 18px;border-radius:12px;background:#30d158;color:#04210d;font:800 15px system-ui,sans-serif;box-shadow:0 8px 24px #0008;animation:acctdrop .3s ease-out;pointer-events:none}
+@keyframes acctdrop{from{transform:translate(-50%,-24px);opacity:0}}

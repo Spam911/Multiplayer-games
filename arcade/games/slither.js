@@ -1,5 +1,8 @@
 'use strict';
 // Slither game module. server.js calls start(wss) once with this game's WebSocketServer.
+const { reward } = require('../lib/progress');
+const scoreXp = (account, score, rank) =>
+  reward(account, 'slither', { score, rank, plays: 1 });
 
 const CFG = {
   WORLD: 4000,
@@ -263,10 +266,18 @@ function kill(s) {
   for (let i = 0; i < s.segs.length; i += 2) {
     addFood(s.segs[i].x + rnd(-6, 6), s.segs[i].y + rnd(-6, 6), 2, s.hue);
   }
+  const score = Math.floor(s.score);
   snakes.delete(s.id);
   if (s.ws) {
     s.ws.snake = null;
-    if (s.ws.readyState === 1) s.ws.send(JSON.stringify({ t: 'dead', score: Math.floor(s.score) }));
+    const rank = snakes.size + 1;                 // whoever is left standing, plus this snake
+    const reward = scoreXp(s.ws.account, score, rank);
+    if (s.ws.readyState === 1) {
+      s.ws.send(JSON.stringify({
+        t: 'dead', score, rank,
+        ...(reward ? { reward } : {}),
+      }));
+    }
   }
 }
 
@@ -371,9 +382,15 @@ module.exports = function start(wss) {
         let humans = 0;
         for (const s of snakes.values()) if (!s.bot) humans++;
         if (humans >= CFG.MAX_PLAYERS) return ws.send(JSON.stringify({ t: 'full' }));
-        const name = String(m.name || '').replace(/[<>&"'\\]/g, '').trim().slice(0, 16) || 'Anon';
+        // A validated account plays under its own name, whatever the client sent.
+        const name = ws.account
+          ? ws.account.name
+          : String(m.name || '').replace(/[<>&"'\\]/g, '').trim().slice(0, 16) || 'Anon';
         ws.snake = spawn(name, ws, false);
-        ws.send(JSON.stringify({ t: 'joined', id: ws.snake.id }));
+        ws.send(JSON.stringify({
+          t: 'joined', id: ws.snake.id,
+          account: ws.account ? { name: ws.account.name, level: ws.account.level } : null,
+        }));
       } else if (m.t === 'in' && ws.snake) {
         if (Number.isFinite(m.a)) ws.snake.target = m.a;
         ws.snake.boost = !!m.b;

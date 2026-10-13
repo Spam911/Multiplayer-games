@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <title>Slither</title>
+<link rel="stylesheet" href="/account.css">
 <style>
   html,body{margin:0;height:100%;overflow:hidden;background:#0b0f1a;color:#fff;font-family:system-ui,sans-serif;touch-action:none}
   canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
@@ -12,6 +13,8 @@
   #menu p{margin:0;opacity:.8;min-height:1.2em}
   #menu input{padding:12px 16px;font-size:18px;border-radius:10px;border:2px solid #2c3a5c;background:#101830;color:#fff;width:240px;text-align:center;outline:none}
   #menu button{padding:12px 36px;font-size:18px;font-weight:700;border:0;border-radius:10px;background:#30d158;color:#04210d;cursor:pointer}
+  #menu #acctBtn{padding:8px 18px;font-size:14px;background:rgba(255,255,255,.1);border:2px solid rgba(255,255,255,.25);color:#fff;font-weight:600}
+  #menu input:disabled{cursor:default}
   #lb{position:fixed;top:12px;right:12px;min-width:170px;padding:10px 12px;background:rgba(0,0,0,.4);border-radius:10px;font-size:13px;line-height:1.5}
   #lb b{display:block;margin-bottom:4px}
   #lb div{display:flex;justify-content:space-between;gap:12px}
@@ -88,7 +91,14 @@
   <p id="msg">Mouse to steer · click or Space to boost</p>
   <input id="name" maxlength="16" placeholder="Nickname" autocomplete="off">
   <button id="play">Play</button>
+  <p id="acctLine" style="font-size:13px;opacity:.75;margin-top:2px"></p>
+  <button id="acctBtn" class="acct-chip" style="margin-top:4px">👤 Sign in</button>
 </div>
+<script src="/account.js"></script>
+<script src="/account-ui.js"></script>
+<script>
+const acctDialog = AccountUI.mount({ onChange() { location.reload(); } });
+</script>
 <script>
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
 const $ = id => document.getElementById(id);
@@ -119,8 +129,13 @@ function connect() {
     else if (m.t === 's') applySnapshot(m);
     else if (m.t === 'dead') {
       playing = false;
-      $('msg').textContent = `You died — score ${m.score}`;
+      const place = m.rank ? ` — place ${m.rank}` : '';
+      $('msg').textContent = `You died — score ${m.score}${place}`;
       $('menu').style.display = 'flex';
+      if (m.reward) {
+        Account.rewardToast(m.reward);
+        Account.load().then(paintAccount);
+      }
     }
     else if (m.t === 'full') $('msg').textContent = 'Server is full, try again in a moment';
   };
@@ -155,12 +170,18 @@ function applySnapshot(m) {
 const DEFAULTS = { sens: 1, touch: 'auto', joy: 'c-br', boost: 'c-bl' };
 let cfg = { ...DEFAULTS };
 try { Object.assign(cfg, JSON.parse(localStorage.getItem('slither-cfg') || '{}')); } catch {}
+// Accounts keep their control settings between browsers.
+if (Account.user && Account.user.settings && Account.user.settings.slitherCfg)
+  Object.assign(cfg, Account.user.settings.slitherCfg);
 
 const coarse = matchMedia('(pointer: coarse)').matches;
 let useTouch = cfg.touch === 'on' || (cfg.touch === 'auto' && coarse);
 let joyRaw = 0, joyAngle = 0;
 
-const saveCfg = () => localStorage.setItem('slither-cfg', JSON.stringify(cfg));
+const saveCfg = () => {
+  localStorage.setItem('slither-cfg', JSON.stringify(cfg));
+  Account.saveSetting('slitherCfg', cfg);          // no-op for guests
+};
 
 function place(el, pos) {
   el.classList.remove('c-tl', 'c-tr', 'c-bl', 'c-br');
@@ -263,15 +284,33 @@ setInterval(() => {
 }, 33);
 
 // ----- menu -----
-$('name').value = localStorage.getItem('slither-name') || '';
+// Guest nickname, or the account name when signed in.
+function paintAccount() {
+  const signedIn = !!Account.user;
+  $('name').disabled = signedIn;
+  $('name').style.opacity = signedIn ? '.6' : '';
+  $('name').placeholder = signedIn ? 'Playing as ' + Account.user.name : 'Nickname';
+  $('acctLine').textContent = signedIn
+    ? `${Account.user.name} · level ${Account.user.level} · ⛁ ${Account.user.tokens}`
+    : '';
+  $('acctBtn').textContent = signedIn ? `👤 ${Account.user.name}` : '👤 Sign in';
+}
 function play() {
   if (ws.readyState !== 1) return;
-  const n = $('name').value.trim();
-  localStorage.setItem('slither-name', n);
+  const n = Account.nickname($('name').value);
+  if (!Account.user) localStorage.setItem('slither-name', n);
   ws.send(JSON.stringify({ t: 'join', name: n }));
 }
 $('play').onclick = play;
 $('name').addEventListener('keydown', e => { if (e.key === 'Enter') play(); });
+
+Account.load().then(() => {
+  $('name').value = Account.user ? Account.user.name : (localStorage.getItem('slither-name') || '');
+  paintAccount();
+});
+$('acctBtn').onclick = () => Account.user
+  ? Account.logout().then(() => location.reload())
+  : acctDialog.open('login');
 
 // ----- render -----
 function drawSnake(o, isMe) {

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Arcade</title>
+<link rel="stylesheet" href="/account.css">
 <style>
   :root{color-scheme:dark}
   *{box-sizing:border-box}
@@ -18,6 +19,26 @@
   .dot.off{background:#ff453a;box-shadow:0 0 8px #ff453a}
   #nick{padding:10px 14px;font-size:16px;border-radius:10px;border:2px solid #2c3a5c;background:#101830;color:#fff;width:220px;outline:none}
   #nick:focus{border-color:#30d158}
+  .right{align-items:stretch}
+  .row2{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+  #acct{display:none}
+  #acct.on{display:block}
+  #lb{margin-top:40px;display:grid;grid-template-columns:1.1fr .9fr;gap:18px}
+  @media (max-width:760px){#lb{grid-template-columns:1fr}}
+  .panel{padding:20px;border-radius:18px;background:#121a30;border:2px solid #22305a}
+  .panel h2{margin:0 0 4px;font-size:20px}
+  .panel .cap{margin:0 0 14px;font-size:13px;opacity:.65}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:1px;opacity:.55;padding:6px 8px;border-bottom:1px solid #22305a}
+  td{padding:7px 8px;border-bottom:1px solid #ffffff0d}
+  tr.me td{background:#30d15822;font-weight:700}
+  td.r{width:44px;opacity:.6}
+  td.tok{color:#f5c451;text-align:right;font-weight:700}
+  td.lv{text-align:right;opacity:.75}
+  .tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+  .tab{padding:6px 13px;border-radius:9px;background:#22305a;font-size:13px;cursor:pointer;border:0;color:#fff}
+  .tab.sel{background:#30d158;color:#04210d;font-weight:700}
+  .empty{opacity:.55;font-size:14px;padding:10px 2px}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px;margin-top:32px}
   .card{display:flex;flex-direction:column;gap:10px;padding:22px;min-height:210px;border-radius:18px;background:#121a30;border:2px solid #22305a;color:inherit;text-decoration:none;transition:transform .12s,border-color .12s}
   a.card:hover{transform:translateY(-3px);border-color:#30d158}
@@ -40,17 +61,76 @@
     </div>
     <div class="right">
       <div id="total"><span class="dot off"></span>Connecting…</div>
-      <input id="nick" maxlength="16" placeholder="Your nickname" autocomplete="off">
+      <div class="row2">
+        <input id="nick" maxlength="16" placeholder="Your nickname" autocomplete="off">
+        <button class="acct-chip" id="acctBtn">👤 <span id="acctLabel">Sign in</span></button>
+        <button class="acct-chip" id="panelBtn" style="display:none">🛠 Admin</button>
+      </div>
+      <div id="acct" style="max-width:230px">
+        <div id="acctName" style="font-size:14px;font-weight:700"></div>
+        <div class="acct-bar"><i id="acctBar"></i></div>
+        <div id="acctMeta" style="font-size:12px;opacity:.7;margin-top:4px"></div>
+      </div>
     </div>
   </header>
   <div class="grid" id="grid"></div>
+
+  <div id="lb">
+    <div class="panel">
+      <h2>🏆 Global ranking</h2>
+      <p class="cap">Inter-game ranking, ordered by total XP. Play as a guest any time — an account only adds progress.</p>
+      <table><thead><tr><th class="r">#</th><th>Player</th><th>Lv</th><th class="tok">⛁</th></tr></thead><tbody id="lbt"></tbody></table>
+    </div>
+    <div class="panel">
+      <h2>🎮 Per game</h2>
+      <p class="cap">XP earned in each game.</p>
+      <div class="tabs" id="ltabs"></div>
+      <table><thead><tr><th class="r">#</th><th>Player</th><th class="tok">XP</th></tr></thead><tbody id="gbt"></tbody></table>
+    </div>
+  </div>
 </div>
+<script src="/account.js"></script>
+<script src="/account-ui.js"></script>
 <script>
 const grid = document.getElementById('grid');
 const total = document.getElementById('total');
 const nick = document.getElementById('nick');
-nick.value = localStorage.getItem('nickname') || '';
+const $ = id => document.getElementById(id);
+
+let dialog = AccountUI.mount({
+  onChange() {
+    paintAccount();
+    loadBoards();
+  },
+});
+
+// Guests type a nickname; accounts get their name back and cannot change it here.
+function paintAccount() {
+  const u = Account.user;
+  $('acct').classList.toggle('on', !!u);
+  $('panelBtn').style.display = Account.admin ? 'block' : 'none';
+  if (u) {
+    $('acctLabel').textContent = 'Sign out';
+    $('acctName').textContent = `${u.name} · level ${u.level}`;
+    $('acctBar').style.width = Math.min(100, (u.levelProgress / u.levelNeeded) * 100) + '%';
+    $('acctMeta').textContent = `${u.xp} XP · ${u.levelProgress}/${u.levelNeeded} to level ${u.level + 1} · ⛁ ${u.tokens}`;
+    nick.value = u.name;
+    nick.disabled = true;
+    nick.style.opacity = '.6';
+  } else {
+    $('acctLabel').textContent = 'Sign in';
+    nick.value = localStorage.getItem('nickname') || '';
+    nick.disabled = false;
+    nick.style.opacity = '';
+  }
+}
 nick.addEventListener('input', () => localStorage.setItem('nickname', nick.value.trim().slice(0, 16)));
+
+$('acctBtn').onclick = () => {
+  if (Account.user) { Account.logout().then(() => { paintAccount(); loadBoards(); }); }
+  else dialog.open('login');
+};
+$('panelBtn').onclick = () => location.href = '/admin/';
 
 const cards = new Map();
 function h(tag, cls, text) {
@@ -79,13 +159,50 @@ async function refresh() {
       if (!c) { c = build(g); cards.set(g.id, c); }
       c.cnt.textContent = g.status === 'live' ? g.online + ' online' : '—';
     }
-    total.innerHTML = '<span class="dot"></span>' + d.total + ' online now';
+    total.innerHTML = '<span class="dot"></span>' + d.total + ' online now'
+      + (d.accounts ? ` · ${d.accounts} account${d.accounts === 1 ? '' : 's'}` : '');
   } catch {
     total.innerHTML = '<span class="dot off"></span>Server unreachable, retrying…';
   }
 }
+
+// ---------- leaderboards ----------
+let tabGame = null;
+async function loadBoards() {
+  try {
+    const r = await fetch('/api/leaderboard', { cache: 'no-store' });
+    const d = await r.json();
+    const me = d.me ? d.me.name : null;
+    $('lbt').innerHTML = d.leaderboard.length
+      ? d.leaderboard.map(e => `<tr class="${e.name === me ? 'me' : ''}">
+          <td class="r">${e.rank}</td>
+          <td>${escapeHtml(e.name)}${e.admin ? ' 🛠' : ''}</td>
+          <td class="lv">${e.level}</td>
+          <td class="tok">${e.tokens}</td></tr>`).join('')
+      : '<tr><td colspan="4" class="empty">No accounts yet — be the first.</td></tr>';
+  } catch {}
+
+  try {
+    const r = await fetch('/api/games/summary', { cache: 'no-store' });
+    const d = await r.json();
+    if (!tabGame || !d.games.some(g => g.id === tabGame)) tabGame = d.games[0] && d.games[0].id;
+    $('ltabs').innerHTML = d.games.map(g =>
+      `<button class="tab ${g.id === tabGame ? 'sel' : ''}" data-g="${g.id}">${g.emoji} ${escapeHtml(g.title)}</button>`).join('');
+    for (const b of $('ltabs').children) b.onclick = () => { tabGame = b.dataset.g; loadBoards(); };
+    const g = d.games.find(x => x.id === tabGame);
+    $('gbt').innerHTML = g && g.top.length
+      ? g.top.map((e, i) => `<tr>
+          <td class="r">${i + 1}</td>
+          <td>${escapeHtml(e.name)} <span style="opacity:.5;font-size:12px">${e.wins}W/${e.plays}</span></td>
+          <td class="tok">${e.xp}</td></tr>`).join('')
+      : '<tr><td colspan="3" class="empty">Nobody has earned XP here yet.</td></tr>';
+  } catch {}
+}
+const escapeHtml = s => String(s).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c]));
+
+Account.load().then(() => { paintAccount(); loadBoards(); });
 refresh();
-setInterval(() => { if (!document.hidden) refresh(); }, 3000);
+setInterval(() => { if (!document.hidden) { refresh(); loadBoards(); } }, 5000);
 </script>
 </body>
 </html>

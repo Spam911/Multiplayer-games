@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin panel · Arcade</title>
+<link rel="stylesheet" href="/account.css">
+<style>
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:radial-gradient(1200px 600px at 50% -10%,#2a1c4a 0,#0b0f1a 60%);color:#fff;font-family:system-ui,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 20px 60px}
+  header{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between;margin-bottom:26px}
+  h1{margin:0;font-size:32px;letter-spacing:2px}
+  .sub{margin:4px 0 0;opacity:.65;font-size:14px}
+  .back{padding:9px 16px;border-radius:10px;background:#1a2440;border:2px solid #2c3a5c;color:#fff;text-decoration:none;font-size:14px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:26px}
+  .stat{padding:16px;border-radius:14px;background:#121a30;border:2px solid #22305a}
+  .stat b{display:block;font-size:28px;line-height:1.1}
+  .stat span{font-size:12px;text-transform:uppercase;letter-spacing:1px;opacity:.6}
+  .panel{padding:20px;border-radius:18px;background:#121a30;border:2px solid #22305a;margin-bottom:20px}
+  .panel h2{margin:0 0 4px;font-size:19px}
+  .panel .cap{margin:0 0 14px;font-size:13px;opacity:.65}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:1px;opacity:.55;padding:7px 8px;border-bottom:1px solid #22305a}
+  td{padding:8px;border-bottom:1px solid #ffffff0d;vertical-align:middle}
+  .tag{padding:3px 9px;border-radius:8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+  .tag.pending{background:#f5c45126;color:#f5c451}
+  .tag.active{background:#30d15826;color:#30d158}
+  .tag.rejected{background:#ff453a26;color:#ff6b6b}
+  .tag.admin{background:#7dd3fc26;color:#7dd3fc}
+  .acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  button.b{padding:6px 12px;border-radius:9px;border:0;font:700 12px system-ui,sans-serif;cursor:pointer;white-space:nowrap}
+  .b.ok{background:#30d158;color:#04210d}
+  .b.no{background:#ff453a;color:#2b0705}
+  .b.re{background:#22305a;color:#fff}
+  .b.gr{background:#f5c451;color:#2b1c00}
+  .msg{margin:12px 0 0;min-height:20px;font-size:14px}
+  .msg.ok{color:#30d158}.msg.err{color:#ff6b6b}
+  .tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+  .tab{padding:7px 15px;border-radius:10px;background:#22305a;border:0;color:#fff;font:13px system-ui,sans-serif;cursor:pointer}
+  .tab.sel{background:#30d158;color:#04210d;font-weight:700}
+  .tab b{font-weight:800}
+  .empty{opacity:.55;font-size:14px;padding:12px 2px}
+  .login{max-width:380px;margin:12vh auto;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap" id="app" hidden>
+  <header>
+    <div>
+      <h1>🛠 Admin panel</h1>
+      <p class="sub">Validate accounts, hand out XP and tokens, watch the economy.</p>
+    </div>
+    <a class="back" href="/">← Lobby</a>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="panel">
+    <h2>Accounts</h2>
+    <p class="cap">New sign ups land in <b>pending</b>. Validate one to let it save settings, earn XP and spend tokens.</p>
+    <div class="tabs" id="tabs"></div>
+    <table>
+      <thead><tr><th>Player</th><th>Status</th><th>Lv</th><th>XP</th><th>⛁</th><th>Games</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="msg" id="msg"></p>
+  </div>
+</div>
+
+<div class="wrap login" id="login" hidden>
+  <h1>🛠 Admin</h1>
+  <p class="sub" id="loginMsg">Sign in with the admin account.</p>
+</div>
+
+<script src="/account.js"></script>
+<script src="/account-ui.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c]));
+let tab = 'pending', users = [];
+
+function say(text, ok = true) {
+  $('msg').textContent = text;
+  $('msg').className = 'msg ' + (ok ? 'ok' : 'err');
+  clearTimeout(say.t);
+  say.t = setTimeout(() => { $('msg').textContent = ''; }, 4000);
+}
+
+function gameChips(games) {
+  const ids = Object.keys(games || {});
+  return ids.length
+    ? ids.map(id => `<span style="opacity:.6">${esc(id)} ${games[id].xp}xp</span>`).join(' · ')
+    : '<span style="opacity:.35">—</span>';
+}
+
+async function act(name, body, label) {
+  const r = await Account.post('/api/admin/user/' + encodeURIComponent(name), body);
+  if (!r.ok) return say(r.error || 'Failed', false);
+  await load();
+  return say(label + ' ' + name);
+}
+
+function row(u) {
+  const disabled = u.role === 'admin' ? 'disabled title="Admins manage themselves"' : '';
+  const acts = u.status !== 'active'
+    ? `<button class="b ok" data-a="validate" ${disabled}>Validate</button>`
+    : `<button class="b re" data-a="pending" ${disabled}>Unvalidate</button>`;
+  return `<tr>
+    <td><b>${esc(u.name)}</b></td>
+    <td><span class="tag ${u.status}">${u.status}</span> ${u.role === 'admin' ? '<span class="tag admin">admin</span>' : ''}</td>
+    <td>${u.level}</td>
+    <td>${u.xp}</td>
+    <td>${u.tokens}</td>
+    <td style="font-size:12px">${gameChips(u.games)}</td>
+    <td><div class="acts">${acts}
+      <button class="b gr" data-a="grant" ${disabled}>+XP/⛁</button>
+      <button class="b no" data-a="delete" ${disabled}>Delete</button>
+    </div></td>
+  </tr>`;
+}
+
+async function load() {
+  const r = await fetch('/api/admin/users', { cache: 'no-store' });
+  if (!r.ok) { const d = await r.json().catch(() => ({})); return say(d.error || 'Not allowed', false); }
+  const d = await r.json();
+  users = d.users;
+  const counts = { pending: 0, active: 0, rejected: 0, all: users.length };
+  for (const u of users) counts[u.status]++;
+  $('tabs').innerHTML = ['pending', 'active', 'rejected', 'all']
+    .map(t => `<button class="tab ${t === tab ? 'sel' : ''}" data-t="${t}">${t} <b>${counts[t]}</b></button>`).join('');
+  for (const b of $('tabs').children) b.onclick = () => { tab = b.dataset.t; load(); };
+
+  const list = users.filter(u => tab === 'all' || u.status === tab);
+  $('rows').innerHTML = list.length ? list.map(row).join('')
+    : `<tr><td colspan="7" class="empty">Nothing here.</td></tr>`;
+
+  const s = d.stats;
+  $('stats').innerHTML = [
+    ['Accounts', s.total], ['Pending', s.pending], ['Active', s.active], ['Rejected', s.rejected],
+  ].map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join('');
+
+  for (const b of $('rows').querySelectorAll('button[data-a]')) {
+    b.onclick = async () => {
+      const name = b.closest('tr').querySelector('b').textContent;
+      const a = b.dataset.a;
+      if (a === 'grant') {
+        const xp = prompt(`XP to give ${name} (negative to remove):`, '100');
+        if (xp === null) return;
+        const tok = prompt(`Tokens to give ${name}:`, '10');
+        if (tok === null) return;
+        return act(name, { action: 'grant', xp: +xp || 0, tokens: +tok || 0 }, 'Updated');
+      }
+      if (a === 'delete' && !confirm(`Delete ${name}? XP and tokens are lost.`)) return;
+      return act(name, { action: a }, a === 'delete' ? 'Deleted' : a === 'validate' ? 'Validated' : a === 'reject' ? 'Rejected' : 'Moved to pending for');
+    };
+  }
+}
+
+Account.load().then(u => {
+  if (!Account.admin) {
+    $('login').hidden = false;
+    $('loginMsg').textContent = u ? 'This account is not an admin.' : 'Sign in with the admin account.';
+    AccountUI.mount({ onChange() { location.reload(); } }).open('login');
+    return;
+  }
+  $('app').hidden = false;
+  load();
+  setInterval(() => { if (!document.hidden) load(); }, 8000);
+});
+</script>
+</body>
+</html>

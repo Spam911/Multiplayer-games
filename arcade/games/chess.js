@@ -3,6 +3,7 @@
 // Rules are enforced here (chess.js); clients only send "from/to" and get the full state back.
 const crypto = require('crypto');
 const { Chess } = require('chess.js');
+const { reward } = require('../lib/progress');
 
 const CHALLENGE_TTL = 30 * 1000;   // a request expires if nobody answers
 const GRACE_IN_GAME = 60 * 1000;   // time to come back after a disconnect mid-game
@@ -108,6 +109,18 @@ function endGame(g, result, reason) {
   for (const p of [g.white, g.black]) {
     if (p.game === g) p.game = null;
     p.lastGame = g;
+    // Only validated accounts earn XP/tokens; guests just play.
+    const resigned = reason === 'resignation' ? p === g.resigned : false;
+    let outcome = 'loss';
+    if (result === '1/2-1/2') outcome = 'draw';
+    else if ((result === '1-0') === (p === g.white)) outcome = 'win';
+    if (resigned) outcome = 'resign';
+    const got = reward(p.account, 'chess', {
+      result: outcome,
+      opponent: (p === g.white ? g.black : g.white).name,
+      plays: 1,
+    });
+    if (got) send(p, { t: 'reward', reward: got });
   }
   sendState(g);
   scheduleBroadcast();
@@ -174,14 +187,19 @@ module.exports = function start(wss) {
           if (p.ws && p.ws !== ws) { const old = p.ws; old.player = null; try { old.close(); } catch {} }
           clearTimeout(p.timer);
           p.ws = ws;
+          if (ws.account && !p.account) p.account = ws.account;   // signed in after joining as guest
         } else {
           p = { id: nextPlayerId++, token: crypto.randomBytes(12).toString('hex'), name: clean(m.name),
-                ws, game: null, lastGame: null, out: null, timer: null };
+                account: ws.account || null, ws, game: null, lastGame: null, out: null, timer: null };
           players.set(p.id, p);
           byToken.set(p.token, p);
         }
         ws.player = p;
-        send(p, { t: 'welcome', id: p.id, name: p.name, token: p.token });
+        if (p.account) p.name = p.account.name;          // accounts always play under their own name
+        send(p, {
+          t: 'welcome', id: p.id, name: p.name, token: p.token,
+          account: p.account ? { name: p.account.name, level: p.account.level } : null,
+        });
         for (const c of challenges.values()) {
           if (c.to === p) send(p, { t: 'incoming', cid: c.cid, from: { id: c.from.id, name: c.from.name } });
         }
@@ -199,7 +217,10 @@ module.exports = function start(wss) {
         case 'respond': respond(p, m.cid, !!m.accept); break;
         case 'move': move(p, m); break;
         case 'resign':
-          if (p.game && !p.game.over) endGame(p.game, p.game.white === p ? '0-1' : '1-0', 'resignation');
+          if (p.game && !p.game.over) {
+            p.game.resigned = p;                    // the quitter gets the smaller reward
+            endGame(p.game, p.game.white === p ? '0-1' : '1-0', 'resignation');
+          }
           break;
         case 'rematch': {
           // Reuse the normal challenge flow so the other side still gets asked.
