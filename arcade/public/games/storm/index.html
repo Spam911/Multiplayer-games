@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Storm Royale</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap">
+<link rel="stylesheet" href="/account.css">
 <style>
 :root{--f:"Lilita One","Trebuchet MS",system-ui,sans-serif;color-scheme:dark}
 *{box-sizing:border-box}
@@ -78,6 +79,38 @@ p{margin:8px 0;font-weight:600;line-height:1.45}
 #board .n span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #board .dotc{width:11px;height:11px;border-radius:50%;flex:none}
 #board .tag{opacity:.6;font-size:12px}
+#board .pl{opacity:.6;min-width:26px;text-align:right}
+
+/* ---- menus / room ---- */
+.stepper{display:flex;align-items:center;justify-content:center;gap:12px;margin:14px 0 4px}
+.stepper .lbl{opacity:.8;font:400 15px var(--f)}
+.stepper b{min-width:34px;font:400 26px var(--f);color:#facc15}
+.stepper button{width:38px;height:38px;border-radius:11px;border:2px solid #fff4;background:#ffffff1a;color:#fff;font:400 22px var(--f);line-height:1;cursor:pointer}
+.stepper button:active{transform:translateY(2px)}
+.stepper button:disabled{opacity:.35}
+.bigbtns{display:flex;flex-direction:column;gap:10px;align-items:center;margin-top:14px}
+.bigbtns button{width:min(300px,80vw);padding:13px 20px;font:400 20px var(--f);border:0;border-radius:14px;background:#facc15;color:#422006;box-shadow:0 6px 0 #b45309;cursor:pointer}
+.bigbtns button.alt{background:#ffffff26;color:#fff;box-shadow:0 5px 0 #0006;font-size:16px;padding:10px 20px}
+.bigbtns button:active{transform:translateY(4px);box-shadow:0 2px 0 #b45309}
+.bigbtns button:disabled{opacity:.5;cursor:default}
+.hdr{font:400 17px var(--f);letter-spacing:1px;opacity:.75;margin:22px 0 8px}
+.hint{font:400 13px var(--f);opacity:.7;margin-top:10px;min-height:1.2em}
+#rlist{display:flex;flex-direction:column;gap:7px;max-width:360px;margin:0 auto}
+.rrow{display:flex;align-items:center;gap:10px;padding:9px 13px;border-radius:12px;background:#00000055;border:2px solid #ffffff2e;font:400 15px var(--f);text-align:left;color:#fff;cursor:pointer;width:100%}
+.rrow:active{transform:translateY(2px)}
+.rrow.live{opacity:.55;border-style:dashed}
+.rrow .g{font:400 19px var(--f);min-width:42px;text-align:center}
+.rrow .info{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rrow .tag2{font-size:12px;opacity:.7}
+.rrow .go{padding:5px 12px;border-radius:9px;background:#facc15;color:#422006;font:400 13px var(--f);flex:none}
+#rmem{display:flex;flex-direction:column;gap:6px;max-width:360px;margin:14px auto 0}
+.mrow{display:flex;align-items:center;gap:9px;padding:8px 12px;border-radius:11px;background:#00000055;border:2px solid #ffffff26;font:400 15px var(--f);text-align:left;color:#fff}
+.mrow.me{border-color:#facc15}
+.mrow .dotc{width:12px;height:12px;border-radius:50%;flex:none}
+.mrow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mrow .host{font-size:11px;background:#facc15;color:#422006;border-radius:5px;padding:1px 6px}
+#ttl2,#ttl3{font:400 clamp(28px,7vmin,44px)/1 var(--f);color:#facc15;letter-spacing:2px;text-shadow:0 4px 0 #b45309}
+#rmem{font-family:var(--f)}
 
 /* ---- settings ---- */
 #gear{position:fixed;z-index:11;top:calc(env(safe-area-inset-top,0px) + 6px);right:calc(env(safe-area-inset-right,0px) + 10px);width:34px;height:34px;padding:0;border-radius:50%;border:2px solid #fff4;background:#000b;color:#fff;font-size:17px;line-height:1;touch-action:manipulation;cursor:pointer}
@@ -98,6 +131,8 @@ p{margin:8px 0;font-weight:600;line-height:1.45}
 <div id="set" hidden><h4>Settings</h4>
   <div class="srow"><span>🎵 Music</span><button class="tg on" id="tm" role="switch" aria-checked="true" aria-label="Music"><i></i></button></div>
   <div class="srow"><span>🔊 Sounds</span><button class="tg on" id="ts" role="switch" aria-checked="true" aria-label="Sounds"><i></i></button></div>
+  <div class="srow"><span>👤 Account</span><button id="ab" style="padding:6px 12px;border-radius:9px;border:2px solid #fff4;background:#ffffff1a;color:#fff;font:400 14px var(--f);cursor:pointer">Sign in</button></div>
+  <div id="acctInfo" style="font:400 13px var(--f);opacity:.75;margin-top:8px"></div>
 </div>
 
 <div id="top">
@@ -121,20 +156,60 @@ p{margin:8px 0;font-weight:600;line-height:1.45}
 <button id="bb">BUILD</button>
 
 <div id="ov">
-  <div>
+  <div id="pMenu">
     <div id="ttl">STORM<br>ROYALE</div>
-    <p id="sub">Drop in with live players and bots. Loot up, build cover and outlast the storm.</p>
+    <p id="sub">Create a game, set how many players it holds, and share it with whoever turns up. Empty slots become bots.</p>
     <div id="tips"><span>🔫 Loot weapons</span><span>🧱 Build walls</span><span>📦 Open chests</span><span>💀 Loot the fallen</span></div>
-    <p id="how"></p>
-    <p id="st1"></p>
-    <p id="board" hidden></p>
     <input id="name" maxlength="16" placeholder="Nickname" autocomplete="off"
            style="padding:12px 16px;font-size:18px;border-radius:10px;border:2px solid #ffffff40;background:#00000055;color:#fff;width:min(260px,80vw);text-align:center;outline:none;font:inherit">
     <div id="cbox"></div>
-    <div><button id="go">DEPLOY</button></div>
-    <div><button id="cs">Change colour</button></div>
+    <div id="szrow" class="stepper">
+      <span class="lbl">Players</span>
+      <button id="szd" aria-label="Fewer players">−</button>
+      <b id="szv">8</b>
+      <button id="szu" aria-label="More players">+</button>
+    </div>
+    <div class="bigbtns">
+      <button id="mk">CREATE GAME</button>
+      <button id="qk" class="alt">Quick play</button>
+    </div>
+    <p id="hint" class="hint"></p>
+    <h3 class="hdr">OPEN GAMES</h3>
+    <div id="rlist"></div>
+    <p id="how"></p>
+    <p id="st1"></p>
+  </div>
+
+  <div id="pRoom" hidden>
+    <div id="ttl2">GAME ROOM</div>
+    <p id="rsub">Waiting for players. Launch whenever you like — bots fill the empty slots.</p>
+    <div id="rmem"></div>
+    <div id="szrow2" class="stepper" hidden>
+      <span class="lbl">Players</span>
+      <button id="szd2" aria-label="Fewer players">−</button>
+      <b id="szv2">8</b>
+      <button id="szu2" aria-label="More players">+</button>
+    </div>
+    <div class="bigbtns">
+      <button id="rstart">LAUNCH GAME</button>
+      <button id="rquit" class="alt">Leave game</button>
+    </div>
+    <p id="rnote" class="hint"></p>
+  </div>
+
+  <div id="pEnd" hidden>
+    <div id="ttl3">STORM<br>ROYALE</div>
+    <p id="esub"></p>
+    <p id="board" hidden></p>
+    <div class="bigbtns">
+      <button id="eagain">Back to games</button>
+    </div>
+    <p id="est1" class="hint"></p>
   </div>
 </div>
+<script src="/account.js"></script>
+<script src="/account-ui.js"></script>
+<script>window.acctDialog = AccountUI.mount({ onChange() { location.reload(); } });</script>
 <script src="game.js"></script>
 </body>
 </html>

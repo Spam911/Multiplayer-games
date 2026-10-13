@@ -42,7 +42,16 @@ const AU = (() => {
     if (s.sfx === false) on.sfx = false;
     if (s.mus === false) on.mus = false;
   } catch (e) {}
-  const persist = () => { try { localStorage.setItem('sr_audio', JSON.stringify(on)); } catch (e) {} };
+  // Accounts keep their audio prefs across browsers.
+  if (Account.user && Account.user.settings) {
+    if (typeof Account.user.settings.audioSfx === 'boolean') on.sfx = Account.user.settings.audioSfx;
+    if (typeof Account.user.settings.audioMus === 'boolean') on.mus = Account.user.settings.audioMus;
+  }
+  const persist = () => {
+    try { localStorage.setItem('sr_audio', JSON.stringify(on)); } catch (e) {}
+    Account.saveSetting('audioSfx', on.sfx);
+    Account.saveSetting('audioMus', on.mus);
+  };
   const note = m => 440 * Math.pow(2, (m - 69) / 12);
 
   function init() {
@@ -309,7 +318,11 @@ let storm = null, aliveCount = 0, clock = 0;
 let self = null;              // our own state: x/y authoritative, px/py predicted
 let stats = { hp: 100, sh: 0, wp: 0, wood: 30, alive: true, k: 0, inv: [1, 0, 0, 0] };
 let outcome = null, standing = null;
-let screen = 'idle';          // idle | queued | countdown | playing | spectating | dead | results
+// screen: menu | room | playing | dead | results
+let screen = 'menu';
+let room = null;              // { id, max, status, hostId, you, members[] }
+let openRooms = [], online = 0;
+let shore = null;             // island outline for the menu backdrop
 let shake = 0, hurt = 0, feed = [], hudKey = '';
 const FX = [];
 const keys = {}, ptr = { x: 0, y: 0, down: false }, sticks = { l: null, r: null };
@@ -330,14 +343,13 @@ const send = o => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws/storm`);
-  ws.onopen = () => { socketReady = true; $('go').disabled = false; };
+  ws.onopen = () => { socketReady = true; refreshMenu(); };
   ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch { return; } onMessage(m); };
   ws.onclose = () => {
     socketReady = false; myId = null; world = null; self = null;
-    others.clear(); outcome = null; standing = null;
-    setScreen('idle');
+    others.clear(); outcome = null; standing = null; room = null;
+    setScreen('menu');
     note('Disconnected — reconnecting…');
-    $('go').disabled = true;
     setTimeout(connect, 1200);
   };
 }
@@ -345,6 +357,30 @@ connect();
 
 function onMessage(m) {
   switch (m.t) {
+    case 'list':
+      openRooms = m.list; online = m.online;
+      // The shoreline arrives with the list, so the backdrop has an island even
+      // before this client has ever played a match.
+      if (m.shore && m.shore.length) shore = m.shore;
+      refreshMenu();
+      break;
+    case 'room':
+      room = m;
+      if (m.status === 'waiting') setScreen('room');
+      renderRoom();
+      break;
+    case 'entered':
+      refreshMenu();
+      if (m.account) note(`Playing as <b>${esc(m.account.name)}</b>.`);
+      break;
+    case 'lobby':
+      room = null;
+      setScreen('menu');
+      break;
+    case 'error':
+      note(esc(m.msg || 'Something went wrong'));
+      if (!room) refreshMenu();
+      break;
     case 'world':
       world = m.world;
       myId = m.you;
@@ -366,24 +402,14 @@ function onMessage(m) {
       break;
     case 'roster': roster = new Map(m.list.map(r => [r.id, r])); break;
     case 'start': setScreen('playing'); AU.stop(); break;
-    case 'spectate': setScreen('spectate-wait'); break;
-    case 'queued': setScreen('queued'); note(`Waiting for players — <b>${m.online}</b> online, lobby of <b>${m.lobby}</b>.`); break;
-    case 'online': if (screen === 'queued') note(`Waiting for players — <b>${m.online}</b> online, lobby of <b>${m.lobby}</b>.`); break;
-    case 'cd': setScreen('countdown'); note(`Match starting in <b>${Math.ceil(m.ms / 1000)}</b>…`); break;
-    case 'lobby': setScreen('idle'); break;
-    case 'full':
-      setScreen('idle');
-      note('The server is full right now — try again in a moment.');
-      $('go').disabled = true;
-      setTimeout(() => { if (screen === 'idle') $('go').disabled = !socketReady; }, 4000);
-      break;
     case 's': apply(m); break;
     case 'dead':
       standing = m;
       stats.alive = false;
-      setScreen(m.spectating ? 'spectating' : 'dead');
+      setScreen('dead');
       break;
     case 'results': outcome = m; setScreen('results'); AU.finish(m.won ? 'win' : 'lose'); break;
+    case 'account': if (m.account) note(`Playing as <b>${esc(m.account.name)}</b>.`); break;
   }
 }
 
@@ -467,7 +493,8 @@ function toast(text) {
 }
 function pop(x, y, value, col) { FX.push({ x, y, l: .8, vy: -45, text: value, col }); }
 function renderFeed() { $('feed').innerHTML = feed.map(f => `<div>${esc(f)}</div>`).join(''); }
-const note = html => { $('st1').innerHTML = html; };
+// Notes show on whichever overlay panel is up.
+const note = html => { $('st1').innerHTML = html; $('est1').innerHTML = html; };
 
 function stepFx(dt) {
   for (let i = FX.length - 1; i >= 0; i--) {
@@ -877,57 +904,111 @@ function drawWeaponChip() {
 // ---------------------------------------------------------------------------
 // screen flow
 // ---------------------------------------------------------------------------
-// The overlay is a small state machine. "playing" and "spectating" both hide
-// it; the overlay states are the ones the player is actually looking at.
+// The overlay is a small state machine with three panels: the game browser, the
+// room you are standing in, and the end-of-match card. "playing" is the only
+// state that hides it; "dead" keeps the world on screen behind the card so you
+// can watch the rest of the match.
+const PANELS = { menu: 'pMenu', room: 'pRoom', end: 'pEnd' };
+
 function setScreen(s) {
   screen = s;
-  const watching = s === 'playing' || s === 'spectating';
-  $('ov').hidden = watching;
-  $('bb').style.display = watching && touchDevice && stats.alive ? 'block' : 'none';
-  $('mm').style.display = watching ? 'block' : 'none';
-  $('bars').style.display = watching ? '' : 'none';
-  // Name and colour only matter while queueing for a match.
-  const canJoin = s === 'idle' || s === 'queued' || s === 'countdown';
-  for (const id of ['name', 'cbox', 'cs', 'tips']) $(id).style.display = canJoin ? '' : 'none';
-  if (!canJoin) note('');
-  if (!watching) { AU.stop(); if (AU.on.mus) AU.menu(); }
-  updateOverlay();
+  const inMatch = s === 'playing' || s === 'dead';
+  $('ov').hidden = s === 'playing';
+  $('bb').style.display = inMatch && touchDevice && stats.alive ? 'block' : 'none';
+  $('mm').style.display = inMatch ? 'block' : 'none';
+  $('bars').style.display = inMatch ? '' : 'none';
+  if (s !== 'playing') { AU.stop(); if (AU.on.mus) AU.menu(); }
+  if (s === 'dead' || s === 'results') showEnd();
+  else if (s !== 'playing') showPanel(s === 'room' ? 'room' : 'menu');
 }
 
-function updateOverlay() {
-  const ttl = $('ttl'), sub = $('sub'), go = $('go'), board = $('board');
-  board.hidden = true;
-  if (screen === 'dead') {
-    const place = standing ? standing.place : '?';
+function showPanel(which) {
+  for (const [name, id] of Object.entries(PANELS)) $(id).hidden = name !== which;
+  if (which === 'menu') refreshMenu();
+  if (which === 'room') renderRoom();
+}
+
+function refreshMenu() {
+  if (screen !== 'menu') return;
+  $('hint').textContent = online
+    ? `${online} player${online === 1 ? '' : 's'} online`
+    : 'Nobody else is here yet — create a game and others can join it.';
+  const list = $('rlist');
+  if (!openRooms.length) {
+    list.innerHTML = '<p class="hint" style="margin:0">No open games right now.</p>';
+    return;
+  }
+  list.innerHTML = openRooms.map(r => {
+    const live = r.status !== 'waiting';
+    const full = r.n >= r.max;
+    const label = live ? 'Live' : full ? 'Full' : 'Join';
+    return `<button class="rrow ${live ? 'live' : ''}" data-room="${r.id}" ${live || full ? 'disabled' : ''}>
+      <span class="g">#${r.id}</span>
+      <span class="info">${esc(r.host)}'s game<span class="tag2"> · ${r.n}/${r.max} players</span></span>
+      <span class="go">${label}</span>
+    </button>`;
+  }).join('');
+}
+
+function renderRoom() {
+  if (!room) return;
+  const isHost = room.hostId === room.you;
+  $('rsub').textContent = room.status === 'live'
+    ? 'Game in progress.'
+    : 'Bots fill every empty slot, so launch whenever you like.';
+  $('rmem').innerHTML = room.members.map(m =>
+    `<div class="mrow ${m.id === room.you ? 'me' : ''}">
+       <i class="dotc" style="background:${esc(m.c)}"></i>
+       <span class="nm">${esc(m.n)}${m.id === room.you ? ' (you)' : ''}</span>
+       ${m.id === room.hostId ? '<span class="host">HOST</span>' : ''}
+     </div>`).join('');
+  // Only the host can resize the game, and never below the seats already taken.
+  $('szrow2').hidden = !isHost;
+  $('szv2').textContent = room.max;
+  $('szd2').disabled = room.max <= Math.max(2, room.members.length);
+  $('szu2').disabled = room.max >= 12;
+  // Launching is the host's call, so only they get the button.
+  $('rstart').hidden = !isHost;
+  $('rstart').disabled = room.status !== 'waiting';
+  $('rstart').textContent = `LAUNCH GAME (${room.members.length}/${room.max})`;
+  const bots = room.max - room.members.length;
+  $('rnote').textContent = room.status !== 'waiting'
+    ? 'Game in progress.'
+    : !isHost
+      ? 'Waiting for the host to launch.'
+      : room.members.length === 1
+        ? 'You opened this game. Launch it to play with bots, or wait for someone to join.'
+        : `${bots} slot${bots === 1 ? '' : 's'} will be filled with bots.`;
+}
+
+function showEnd() {
+  showPanel('end');
+  const ttl = $('ttl3'), sub = $('esub'), board = $('board'), again = $('eagain');
+  if (screen === 'dead' && standing) {
     ttl.textContent = 'ELIMINATED';
-    sub.innerHTML = `Taken out by <b>${esc(standing ? standing.by : 'the storm')}</b>. You placed <b>#${place}</b> of ${standing ? standing.total : '?'} with ${stats.k} elimination${stats.k === 1 ? '' : 's'}.`;
-    go.textContent = 'Watch the rest';
-    go.disabled = false;
+    sub.innerHTML = `Taken out by <b>${esc(standing.by)}</b>. You placed <b>#${standing.place}</b> of ${standing.total} with ${standing.kills} elimination${standing.kills === 1 ? '' : 's'}.`;
+    // While any human is still alive the match runs on; results follow it.
+    again.disabled = standing.humansLeft > 0;
+    again.textContent = again.disabled ? 'Match still running' : 'See final standings';
+    board.hidden = true;
     return;
   }
-  if (screen === 'spectate-wait') {
-    ttl.innerHTML = 'MATCH IN PROGRESS';
-    sub.textContent = 'A match is already running. Watch it out, or queue for the next one when it ends.';
-    go.textContent = 'Watch';
-    go.disabled = false;
-    return;
+  const kills = outcome && Number.isFinite(outcome.kills) ? outcome.kills : stats.k;
+  ttl.textContent = outcome && outcome.won ? '🏆 ROYALE!' : 'MATCH OVER';
+  const who = outcome && outcome.winner ? esc(outcome.winner) : 'nobody';
+  sub.innerHTML = `<b>${who}</b> won. You placed <b>#${outcome ? outcome.place : '?'}</b> of ${outcome ? outcome.total : '?'} with ${kills} elimination${kills === 1 ? '' : 's'}.`;
+  again.disabled = false;
+  again.textContent = 'Back to games';
+  const rows = (outcome ? outcome.leaderboard : []).map(r =>
+    `<div class="${r.i === myId ? 'me' : ''}"><span class="pl">${r.place}</span>
+       <span class="n"><i class="dotc" style="background:${esc((roster.get(r.i) || {}).col || '#888')}"></i>
+       <span>${esc(r.n)}</span>${r.b ? '<span class="tag">BOT</span>' : ''}</span>
+       <span>${r.place === 1 ? '🏆 ' : ''}${r.k}💀</span></div>`);
+  if (rows.length) { board.innerHTML = rows.join(''); board.hidden = false; }
+  if (outcome && outcome.reward) {
+    Account.rewardToast(outcome.reward);
+    Account.load().then(paintAccount);
   }
-  if (screen === 'results') {
-    const kills = outcome && Number.isFinite(outcome.kills) ? outcome.kills : stats.k;
-    ttl.textContent = outcome && outcome.won ? '🏆 ROYALE!' : 'MATCH OVER';
-    const who = outcome && outcome.winner ? esc(outcome.winner) : 'nobody';
-    sub.innerHTML = `<b>${who}</b> won the island. You finished with ${kills} elimination${kills === 1 ? '' : 's'}.`;
-    go.textContent = 'Play again';
-    go.disabled = false;
-    const rows = (outcome ? outcome.leaderboard : []).map(r =>
-      `<div class="${r.i === myId ? 'me' : ''}"><span class="n"><i class="dotc" style="background:${esc((roster.get(r.i) || {}).col || '#888')}"></i><span>${esc(r.n)}</span>${r.b ? '<span class="tag">BOT</span>' : ''}</span><span>${r.a ? '🏆 ' : ''}${r.k}💀</span></div>`);
-    if (rows.length) { board.innerHTML = rows.join(''); board.hidden = false; }
-    return;
-  }
-  ttl.innerHTML = 'STORM<br>ROYALE';
-  sub.textContent = 'Drop in with live players and bots. Loot up, build cover and outlast the storm.';
-  go.textContent = screen === 'queued' || screen === 'countdown' ? 'Queued…' : 'DEPLOY';
-  go.disabled = !socketReady || screen === 'queued' || screen === 'countdown';
 }
 
 // ---------------------------------------------------------------------------
@@ -1039,6 +1120,7 @@ function localStep(dt) {
 // main loop
 // ---------------------------------------------------------------------------
 let last = performance.now();
+let warnedDraw = false;
 function frame(now) {
   const dt = Math.min(.05, (now - last) / 1000);
   last = now;
@@ -1048,12 +1130,61 @@ function frame(now) {
   const k = 1 - Math.exp(-dt * 16);
   for (const o of others.values()) { o.px += (o.x - o.px) * k; o.py += (o.y - o.py) * k; }
   for (const b of shots) { b.px += (b.x - b.px) * k; b.py += (b.y - b.py) * k; }
-  if (screen === 'playing' || screen === 'dead' || screen === 'spectating') draw();
-  else { c.setTransform(dpr, 0, 0, dpr, 0, 0); c.fillStyle = '#14301c'; c.fillRect(0, 0, cw, ch); }
-  stepFx(dt);
+  // A throw inside draw() used to stop requestAnimationFrame for good, which
+  // froze the game on a blank island while the server kept playing it. Draw in
+  // isolation and always schedule the next frame, so one bad frame costs a
+  // single frame rather than the whole match.
+  try {
+    if (screen === 'playing' || screen === 'dead') draw();
+    else drawBackdrop();
+    stepFx(dt);
+  } catch (err) {
+    if (!warnedDraw) {
+      warnedDraw = true;
+      console.error('[storm] render error (recovered, continuing):', err);
+    }
+  }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// Backdrop behind the menus and the room screen. A flat fill looked like a
+// broken canvas sitting there, so this paints the sea and a hint of shoreline:
+// there is always an island to look at, even before a match is running.
+function drawBackdrop() {
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const g = c.createLinearGradient(0, 0, 0, ch);
+  g.addColorStop(0, '#123f63');
+  g.addColorStop(1, '#0d2f4c');
+  c.fillStyle = g;
+  c.fillRect(0, 0, cw, ch);
+
+  // A slow swell so the water is not dead either.
+  c.fillStyle = '#ffffff09';
+  for (let i = 0; i < 9; i++) {
+    const y = ((clock * 9 + i * 97) % (ch + 120)) - 60;
+    c.beginPath();
+    c.ellipse(cw * .5 + Math.sin(clock * .4 + i) * 120, y, cw * .42, 13, 0, 0, TAU);
+    c.fill();
+  }
+
+  // Silhouette of the island, centred and scaled to fit. The live world wins
+  // when there is one; otherwise fall back to the shoreline the server sent.
+  const outline = (world && world.isl && world.isl.dry) || shore;
+  if (outline && outline.length) {
+    const k = Math.min(cw, ch) / 3400;
+    c.save();
+    c.translate(cw / 2, ch / 2);
+    c.scale(k, k);
+    c.translate(-1600, -1600);
+    c.fillStyle = '#0a1f16';
+    c.beginPath();
+    outline.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y)));
+    c.closePath();
+    c.fill();
+    c.restore();
+  }
+}
 
 function draw() {
   const sx = (Math.random() - .5) * shake, sy = (Math.random() - .5) * shake;
@@ -1072,8 +1203,10 @@ function draw() {
   drawScenery(view, hw, hh);
   drawLoot(view, hw, hh, t);
 
-  // wall-build ghost in front of us
-  if (stats.alive && (stats.wood >= 10) && screen === 'playing') {
+  // wall-build ghost in front of us.
+  // `self` is null until the first snapshot lands, and the world arrives a beat
+  // earlier than it, so it has to be part of this guard.
+  if (self && stats.alive && (stats.wood >= 10) && screen === 'playing') {
     const a = self.ang, bx = self.px + Math.cos(a) * 46, by = self.py + Math.sin(a) * 46;
     const horiz = Math.abs(Math.cos(a)) > Math.abs(Math.sin(a));
     const w = horiz ? 14 : 90, h = horiz ? 90 : 14;
@@ -1149,8 +1282,21 @@ function draw() {
 // ---------------------------------------------------------------------------
 // menus + settings
 // ---------------------------------------------------------------------------
-$('name').value = localStorage.getItem('nickname') || '';
-$('name').addEventListener('input', () => localStorage.setItem('nickname', $('name').value.trim().slice(0, 16)));
+// Guest nickname, or the account name when signed in.
+function paintAccount() {
+  const u = Account.user;
+  $('name').disabled = !!u;
+  $('name').style.opacity = u ? '.6' : '';
+  $('name').placeholder = u ? 'Playing as ' + u.name : 'Nickname';
+  $('ab').textContent = u ? `👤 ${u.name}` : '👤 Sign in';
+  $('acctInfo').textContent = u ? `Level ${u.level} · ${u.xp} XP · ⛁ ${u.tokens}` : 'Sign in to save progress';
+  $('name').value = Account.nickname($('name').value);
+}
+$('name').addEventListener('input', () => {
+  if (!Account.user) localStorage.setItem('nickname', $('name').value.trim().slice(0, 16));
+});
+$('ab').onclick = () => Account.user ? Account.logout().then(() => location.reload()) : acctDialog.open('login');
+Account.load().then(paintAccount);
 
 let colour = localStorage.getItem('storm-col') || COLS[0];
 if (!COLS.includes(colour)) colour = COLS[0];
@@ -1164,18 +1310,53 @@ $('cbox').addEventListener('click', e => {
   if (!b) return;
   colour = b.dataset.c;
   localStorage.setItem('storm-col', colour);
+  Account.saveSetting('stormColour', colour);
   renderColours();
 });
 
-$('go').onclick = () => {
+// ---- deploy ----
+const deployName = () => Account.nickname($('name').value);
+
+$('mk').onclick = () => {
   AU.unlock();
-  // "Watch the rest" / "Watch": just hide the overlay and keep spectating.
-  if (screen === 'dead' || screen === 'spectate-wait') { setScreen('spectating'); return; }
   if (!socketReady) return;
-  send({ t: 'join', name: $('name').value.trim(), col: colour });
-  setScreen('queued');
+  send({ t: 'create', name: deployName(), col: colour, max: menuSize });
 };
-$('name').addEventListener('keydown', e => { if (e.key === 'Enter') $('go').click(); });
+$('qk').onclick = () => {
+  AU.unlock();
+  if (!socketReady) return;
+  send({ t: 'quick', name: deployName(), col: colour });
+};
+$('name').addEventListener('keydown', e => { if (e.key === 'Enter') $('mk').click(); });
+
+// Game size for a new game. A room can still be resized later from inside it.
+let menuSize = 8;
+const paintSize = () => {
+  $('szv').textContent = menuSize;
+  $('szd').disabled = menuSize <= 2;
+  $('szu').disabled = menuSize >= 12;
+};
+$('szd').onclick = () => { menuSize = Math.max(2, menuSize - 1); paintSize(); };
+$('szu').onclick = () => { menuSize = Math.min(12, menuSize + 1); paintSize(); };
+paintSize();
+
+// ---- open games list ----
+$('rlist').addEventListener('click', e => {
+  const row = closest(e, '.rrow');
+  if (!row || row.disabled || !socketReady) return;
+  AU.unlock();
+  send({ t: 'join', room: +row.dataset.room, name: deployName(), col: colour });
+});
+
+// ---- inside a room ----
+// Anyone in the room may launch it; only the host may resize it.
+$('rstart').onclick = () => { AU.unlock(); send({ t: 'start' }); };
+$('rquit').onclick = () => { AU.unlock(); send({ t: 'leave' }); };
+$('szd2').onclick = () => { if (room) send({ t: 'size', max: Math.max(2, room.max - 1) }); };
+$('szu2').onclick = () => { if (room) send({ t: 'size', max: Math.min(12, room.max + 1) }); };
+
+// ---- end of match ----
+$('eagain').onclick = () => { AU.unlock(); send({ t: 'leave' }); };
 
 {
   const panel = $('set'), gear = $('gear');
@@ -1203,4 +1384,4 @@ $('name').addEventListener('keydown', e => { if (e.key === 'Enter') $('go').clic
 }
 
 AU.unlock();
-setScreen('idle');
+setScreen('menu');
