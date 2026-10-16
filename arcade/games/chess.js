@@ -183,6 +183,12 @@ module.exports = function start(wss) {
       if (m.t === 'hello') {
         if (ws.player) return;
         let p = m.token ? byToken.get(String(m.token)) : null;
+        // Only resume an existing player when its old socket has actually gone.
+        // sessionStorage is shared by every tab of this origin, so a second tab
+        // arrives holding the first tab's token; treating that as a resume would
+        // evict the first player and leave two tabs sharing one identity, with
+        // nobody able to play.
+        if (p && p.ws && p.ws !== ws && p.ws.readyState === 1) p = null;
         if (p) {                                   // resume after refresh / reconnect
           if (p.ws && p.ws !== ws) { const old = p.ws; old.player = null; try { old.close(); } catch {} }
           clearTimeout(p.timer);

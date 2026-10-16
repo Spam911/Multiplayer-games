@@ -136,6 +136,9 @@
 <script src="/shop-ui.js"></script>
 
 <script>
+// Identifies this tab so a resume token stored in sessionStorage (which every
+// tab of this origin shares) is only honoured by the tab that saved it.
+const TAB_ID = Math.random().toString(36).slice(2);
 const $ = id => document.getElementById(id);
 const el = (tag, cls, text) => {
   const e = document.createElement(tag);
@@ -180,7 +183,15 @@ function connect() {
   setConn('Connecting…', false);
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws/chess`);
-  ws.onopen = () => send({ t: 'hello', name: Account.nickname(name), token: sessionStorage.getItem('chess-token') || undefined });
+  ws.onopen = () => {
+    // sessionStorage is shared by every tab of this origin, so a second tab would
+    // otherwise inherit the first tab's resume token and impersonate it. Only
+    // reuse the token when this tab is the one that stored it.
+    const mine = sessionStorage.getItem('chess-token-owner');
+    const stored = sessionStorage.getItem('chess-token');
+    const token = (mine === TAB_ID && stored) ? stored : undefined;
+    send({ t: 'hello', name: Account.nickname(name), token });
+  };
   ws.onmessage = ev => handle(JSON.parse(ev.data));
   ws.onclose = () => {
     setConn('Disconnected — reconnecting…', false);
@@ -194,6 +205,7 @@ function handle(m) {
     case 'welcome':
       me = { id: m.id, name: m.name };
       sessionStorage.setItem('chess-token', m.token);
+    sessionStorage.setItem('chess-token-owner', TAB_ID);
       setConn('Online as ' + m.name, true);
       if (m.account && Account.user) Account.load().then(paintAccount);
       break;
@@ -437,6 +449,9 @@ function paintAccount() {
   chip.title = u ? `${u.xp} XP — click to sign out` : 'Sign in to save progress';
   $('gname').disabled = !!u;
   $('gname').placeholder = u ? 'Playing as ' + u.name : 'Nickname';
+  // Prefill the box rather than adopting the name: the player may want a
+  // different one, and this tab must not inherit another tab's identity.
+  if (!$('gname').value) $('gname').value = Account.nickname(name);
   name = Account.nickname(name);
 }
 $('acctChip').onclick = () => Account.user
@@ -445,11 +460,20 @@ $('acctChip').onclick = () => Account.user
 Account.load().then(paintAccount).then(async () => {
   await ShopUI.reload();      // after the account, so owned items are visible
   applyEquippedTheme();
-  if (Account.user || name) begin();
+  // localStorage is shared by every tab, so a second tab inherits the first
+  // tab's nickname and would silently auto-join as the same player. Show the
+  // name gate whenever there is a stored nickname instead of auto-joining, so
+  // each tab gets its own identity.
+  const autoJoin = !!Account.user;
+  if (autoJoin) begin();
   else {
     $('gate').hidden = false;
     const join = () => {
-      const n = Account.nickname($('gname').value).trim().slice(0, 16);
+      // What the player typed wins. Account.nickname() prefers the stored
+      // nickname, which is shared by every tab and would make a second tab
+      // join under the first tab's name.
+      const typed = $('gname').value.trim().slice(0, 16);
+      const n = Account.user ? Account.nickname() : (typed || Account.nickname());
       if (!n) return;
       if (!Account.user) localStorage.setItem('nickname', n);
       name = n; begin();
